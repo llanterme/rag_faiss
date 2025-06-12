@@ -3,12 +3,13 @@
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import typer
 from langchain.chains.conversational_retrieval.base import (
     BaseConversationalRetrievalChain,
 )
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 
 from src.config import settings
@@ -31,19 +32,19 @@ def ingest(
         typer.echo(f"Error: Path '{path}' does not exist")
         return
 
-    texts = []
+    documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
 
     if path.is_file():
         # Process single file
         if path.suffix.lower() == ".txt":
             typer.echo(f"Ingesting TXT file: {path}")
-            texts.append(load_txt(path))
+            documents.append((str(path), load_txt(path)))
         elif path.suffix.lower() == ".pdf":
             typer.echo(f"Ingesting PDF file: {path}")
-            texts.append(load_pdf(path))
+            documents.append((str(path), load_pdf(path)))
         elif path.suffix.lower() in [".docx", ".doc"]:
             typer.echo(f"Ingesting DOCX file: {path}")
-            texts.append(load_docx(path))
+            documents.append((str(path), load_docx(path)))
         else:
             typer.echo(f"Unsupported file type: {path.suffix}")
             return
@@ -54,20 +55,35 @@ def ingest(
             if file_path.is_file():
                 if file_path.suffix.lower() == ".txt":
                     typer.echo(f"Ingesting TXT file: {file_path}")
-                    texts.append(load_txt(file_path))
+                    documents.append((str(file_path), load_txt(file_path)))
                 elif file_path.suffix.lower() == ".pdf":
                     typer.echo(f"Ingesting PDF file: {file_path}")
-                    texts.append(load_pdf(file_path))
+                    documents.append((str(file_path), load_pdf(file_path)))
                 elif file_path.suffix.lower() in [".docx", ".doc"]:
                     typer.echo(f"Ingesting DOCX file: {file_path}")
-                    texts.append(load_docx(file_path))
+                    documents.append((str(file_path), load_docx(file_path)))
 
-    if not texts:
+    if not documents:
         typer.echo("No supported documents found to ingest.")
         return
 
-    typer.echo(f"Creating vector embeddings for {len(texts)} document(s)...")
-    index = create_faiss_index(texts)
+    # Create text splitter for chunking
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=settings.chunk_size,
+        chunk_overlap=settings.chunk_overlap,
+        length_function=len,
+    )
+
+    # Split documents into chunks
+    typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
+    chunks = []
+    for doc_path, content in documents:
+        doc_chunks = text_splitter.split_text(content)
+        typer.echo(f"  - {Path(doc_path).name}: {len(doc_chunks)} chunks")
+        chunks.extend(doc_chunks)
+
+    typer.echo(f"Creating vector embeddings for {len(chunks)} text chunks...")
+    index = create_faiss_index(chunks)
 
     # Save index to disk
     save_index(index)
