@@ -24,12 +24,14 @@ class ChatState(TypedDict):
         messages: List of conversation messages (HumanMessage or AIMessage)
         question: Current user question
         context: Retrieved context from the vector store as a combined string
+        sources: List of document sources for the retrieved context
         answer: Generated AI response
     """
 
     messages: List[Any]  # HumanMessage or AIMessage
     question: Optional[str]
     context: Optional[str]  # Using string for context, not List[str]
+    sources: Optional[List[Dict[str, str]]]  # Document sources with metadata
     answer: Optional[str]
 
 
@@ -63,27 +65,79 @@ def create_graph_chain(
             state: Current conversation state
 
         Returns:
-            Updated state with retrieved context
+            Updated state with retrieved context and sources
         """
-        retriever = index.as_retriever()
         if not state.get("question"):
+            print("No question in state, skipping retrieval")
             return state
+            
+        # Validate question
+        question = state["question"]
+        if not question or not isinstance(question, str) or len(question.strip()) < 3:
+            print(f"Invalid question format: {question}")
+            return {**state, "context": "", "sources": []}
         
         try:
+            # Configure retriever with proper settings
+            retriever = index.as_retriever(
+                search_kwargs={"k": 4}  # Retrieve top 4 documents
+            )
+            
             # Use invoke method instead of deprecated get_relevant_documents
-            context = retriever.invoke(state["question"])
-            context_str = "\n\n".join([doc.page_content for doc in context])
-            return {**state, "context": context_str}
+            docs = retriever.invoke(question)
+            
+            if not docs:
+                print("No documents retrieved for the question")
+                return {**state, "context": "", "sources": []}
+                
+            # Extract document content and source information
+            contents = []
+            for doc in docs:
+                if hasattr(doc, 'page_content') and doc.page_content:
+                    contents.append(doc.page_content)
+            
+            # If no valid content was found
+            if not contents:
+                print("Retrieved documents had no valid content")
+                return {**state, "context": "", "sources": []}
+                
+            context_str = "\n\n".join(contents)
+            
+            # Extract source information from metadata
+            sources = []
+            for doc in docs:
+                if hasattr(doc, 'metadata') and doc.metadata:
+                    source_info = {
+                        "source": doc.metadata.get("source", "Unknown"),
+                        "source_path": doc.metadata.get("source_path", "")
+                    }
+                    if source_info not in sources:
+                        sources.append(source_info)
+            
+            print(f"Retrieved {len(docs)} documents with {len(sources)} unique sources")
+            return {**state, "context": context_str, "sources": sources}
         except Exception as e:
+            import traceback
             print(f"Retrieval error: {e}")
+            print(traceback.format_exc())
             # Return empty context if retrieval fails
-            return {**state, "context": ""}
+            return {**state, "context": "", "sources": []}
 
     # Define answer generation function
     def generate_answer(state: ChatState) -> ChatState:
         """Generate an answer using the LLM."""
-        if not state.get("question") or state.get("context") is None:
-            return state
+        if not state.get("question"):
+            print("No question found in state")
+            return {**state, "answer": "No question was provided."}
+            
+        if state.get("context") is None:
+            print("No context found in state")
+            return {**state, "answer": "No relevant documents found for this question."}
+
+        # Check if context is empty
+        if state.get("context") == "":
+            print("Empty context string")
+            return {**state, "answer": "I couldn't find any relevant information to answer your question."}
 
         # Create the prompt with conversation history and retrieved context
         messages = [
@@ -92,20 +146,36 @@ def create_graph_chain(
             ),
         ]
 
-        # Add conversation history
-        if state.get("messages"):
-            messages.extend(state["messages"])
+        # Add conversation history (validate before adding)
+        if state.get("messages") and isinstance(state["messages"], list):
+            # Only add valid messages
+            valid_messages = []
+            for msg in state["messages"]:
+                if hasattr(msg, "content") and msg.content is not None:
+                    valid_messages.append(msg)
+            messages.extend(valid_messages)
 
         # Add the current question
         messages.append(HumanMessage(content=state["question"]))
 
         # Generate response from LLM
         try:
+            print(f"Calling OpenAI API with {len(messages)} messages")
             response = llm.invoke(messages)
-            return {**state, "answer": response.content}
+            if response and hasattr(response, "content") and response.content:
+                return {**state, "answer": response.content}
+            else:
+                print("Empty or invalid response from LLM")
+                return {**state, "answer": "I received an empty response. Please try rephrasing your question."}
         except Exception as e:
-            print(f"Answer generation error: {e}")
-            return {**state, "answer": "I encountered an error while generating an answer. Please try again."}
+            import traceback
+            print(f"Answer generation error: {str(e)}")
+            print(traceback.format_exc())
+            error_msg = f"Error: {str(e)}"
+            # For token limit errors, provide a more helpful message
+            if "maximum context length" in str(e).lower() or "token" in str(e).lower():
+                error_msg = "The context from your documents is too large for me to process. Try uploading shorter documents or ask a more specific question."
+            return {**state, "answer": error_msg}
 
     # Define function to update conversation history
     def update_conversation(state: ChatState) -> ChatState:
@@ -116,10 +186,18 @@ def create_graph_chain(
         # Initialize messages list if it doesn't exist
         messages = state.get("messages", [])
         
-        # Add the user question and generated answer to conversation history
+        # Get the sources from the state
+        sources = state.get("sources", [])
+        
+        # Add the user question as a HumanMessage
         new_messages = messages.copy()
         new_messages.append(HumanMessage(content=state["question"]))
-        new_messages.append(AIMessage(content=state["answer"]))
+        
+        # Create an AIMessage with the answer and attach sources as an attribute
+        ai_message = AIMessage(content=state["answer"])
+        if hasattr(ai_message, "__setattr__"):
+            ai_message.sources = sources
+        new_messages.append(ai_message)
         
         # Create new state with updated messages and cleared question/answer/context
         return {
@@ -127,7 +205,8 @@ def create_graph_chain(
             "messages": new_messages,
             "question": None,
             "answer": None,
-            "context": None
+            "context": None,
+            "sources": []
         }
 
     # Create the graph
@@ -173,6 +252,7 @@ def build_retrieval_chain(
         "messages": [],
         "question": None,
         "context": None,
+        "sources": [],
         "answer": None,
     }
     
