@@ -6,7 +6,7 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain.chains.conversational_retrieval.base import (
     BaseConversationalRetrievalChain,
 )
-from langchain.memory import ConversationBufferMemory
+from langchain.memory import ConversationBufferMemory  # Will show deprecation warning but still works
 from langchain_community.vectorstores import FAISS
 from langchain_openai import ChatOpenAI
 
