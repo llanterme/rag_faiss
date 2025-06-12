@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# Virtual Environments
+env/
+venv/
+ENV/
+.env
+
+# Poetry
+.venv/
+poetry.lock
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Mac OS
+.DS_Store
+
+# Project specific
+data/vector_store/
+*.faiss
+*.pkl
+.ipynb_checkpoints/
+
+# Document data that may contain sensitive information
+# Uncomment if you don't want to track sample documents
+# data/sample_docs/
