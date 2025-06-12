@@ -1,12 +1,12 @@
 # Document Chat
 
-A Python application that enables users to ingest documents (PDF, DOCX, TXT) and interactively chat or ask questions about them.
+A Python application that enables users to ingest documents (PDF, DOCX, TXT) and interactively chat or ask questions about them using a modern RAG architecture.
 
 ## Features
 
-- **Document Ingestion**: Support for PDF, DOCX, and TXT formats
+- **Document Ingestion**: Support for PDF, DOCX, and TXT formats with intelligent chunking
 - **Embeddings & Vector Store**: Using OpenAI embeddings and FAISS for local storage
-- **QA Chain**: RetrievalQA with ChatOpenAI and conversational memory
+- **LangGraph RAG Chain**: Modern graph-based approach with persistent conversation memory
 - **CLI Interface**: Typer-based interface with helpful commands
 
 ## Quick Start
@@ -54,8 +54,10 @@ A Python application that enables users to ingest documents (PDF, DOCX, TXT) and
 ## Tech Stack
 
 - LangChain ^0.3.25
+- LangGraph ^0.4.8
 - OpenAI ^1.86.0
 - FAISS-CPU ^1.11.0
 - PyPDF ^5.6.0
 - python-docx ^1.1.2
 - Typer ^0.16.0
+- Cryptography ^45.0.4

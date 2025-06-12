@@ -18,6 +18,8 @@ class Settings(BaseSettings):
         chunk_overlap (int): Overlap between document chunks.
         faiss_index_filename (str): Filename for the FAISS index.
         temperature (float): Temperature for the OpenAI model.
+        graph_state_path (Path): Path to store persistent graph state data.
+        enable_persistence (bool): Whether to enable graph state persistence.
     """
 
     openai_api_key: str = Field(
@@ -38,6 +40,13 @@ class Settings(BaseSettings):
     )
     temperature: float = Field(
         default=0.0, description="Temperature for the OpenAI model"
+    )
+    graph_state_path: Path = Field(
+        default=Path("./data/graph_state"),
+        description="Path to store persistent graph state data"
+    )
+    enable_persistence: bool = Field(
+        default=True, description="Whether to enable graph state persistence"
     )
 
     model_config = SettingsConfigDict(
