@@ -1,46 +1,30 @@
-"""RetrievalQA chain configuration module."""
+"""Legacy module that redirects to langgraph_chain implementation.
 
-from typing import Optional
+This module is maintained for backwards compatibility but delegates to the new
+LangGraph-based implementation.
+"""
 
-from langchain.chains import ConversationalRetrievalChain
-from langchain.chains.conversational_retrieval.base import (
-    BaseConversationalRetrievalChain,
-)
-from langchain.memory import ConversationBufferMemory  # Will show deprecation warning but still works
+from typing import Any
+
 from langchain_community.vectorstores import FAISS
-from langchain_openai import ChatOpenAI
 
-from src.config import settings
+from src.langgraph_chain import build_retrieval_chain as _build_retrieval_chain
 
 
 def build_retrieval_chain(
     index: FAISS, model_name: str = "gpt-4o"
-) -> BaseConversationalRetrievalChain:
+) -> Any:
     """Build a retrieval chain for question answering.
-
+    
+    This is a wrapper around the LangGraph implementation that maintains
+    backwards compatibility with the original API.
+    
     Args:
         index: FAISS vector store to use for retrieval.
         model_name: Name of the OpenAI model to use.
-
+        
     Returns:
-        Configured ConversationalRetrievalChain.
+        Configured LangGraph chain with conversation memory.
     """
-    # Create memory for conversation context
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
-    # Create the language model
-    llm = ChatOpenAI(
-        model_name=model_name,
-        temperature=settings.temperature,
-        openai_api_key=settings.openai_api_key,
-    )
-
-    # Create the retrieval chain
-    chain = ConversationalRetrievalChain.from_llm(
-        llm=llm,
-        retriever=index.as_retriever(),
-        memory=memory,
-        verbose=False,
-    )
-
-    return chain
+    # Delegate to the new LangGraph implementation
+    return _build_retrieval_chain(index, model_name)

@@ -3,24 +3,23 @@
 import os
 import sys
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import typer
-from langchain.chains.conversational_retrieval.base import (
-    BaseConversationalRetrievalChain,
-)
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
+from langchain_core.messages import AIMessage, HumanMessage
 
 from src.config import settings
 from src.embeddings import create_faiss_index, load_index, save_index
 from src.ingestion import load_docx, load_pdf, load_txt
-from src.qa_chain import build_retrieval_chain
+from src.langgraph_chain import build_retrieval_chain
 
 app = typer.Typer(help="Document chat application")
 
-# Store the chain globally
-qa_chain: Optional[BaseConversationalRetrievalChain] = None
+# Store the chain and config globally
+qa_chain: Any = None
+chain_config: Optional[Dict] = None
 
 
 @app.command()
@@ -95,7 +94,7 @@ def ingest(
 @app.command()
 def chat():
     """Start interactive chat session."""
-    global qa_chain
+    global qa_chain, chain_config
 
     try:
         # Try to load existing index
@@ -107,7 +106,7 @@ def chat():
         )
         return
 
-    # Build retrieval chain
+    # Build retrieval chain with LangGraph
     qa_chain = build_retrieval_chain(index)
 
     typer.echo("Starting chat session. Type 'exit' to quit.")
@@ -118,24 +117,80 @@ def chat():
 
         if query.lower() in ["exit", "quit"]:
             break
-
-        # Get response
-        response = qa_chain({"question": query})
-        typer.echo(f"AI: {response['answer']}")
+            
+        # Process the user query through the graph
+        try:
+            # Use the LangGraph chain with the question
+            result = qa_chain.invoke({"question": query})
+            
+            # LangGraph 0.4.x returns the final state with answer field
+            if isinstance(result, dict):
+                # First check for direct answer field
+                if "answer" in result and result["answer"]:
+                    typer.echo(f"AI: {result['answer']}")
+                # Then look for messages (especially the last one)
+                elif "messages" in result and result["messages"]:
+                    for message in result["messages"]:
+                        if isinstance(message, AIMessage) and message == result["messages"][-1]:
+                            typer.echo(f"AI: {message.content}")
+                            break
+                else:
+                    # Fallback if we can't find the answer
+                    typer.echo("AI: I couldn't generate a response. Please try again.")
+            else:
+                typer.echo(f"AI: {result}")
+                
+        except Exception as e:
+            typer.echo(f"Error processing query: {str(e)}")
+            typer.echo("Please try again or restart the chat session.")
+            continue
 
 
 @app.command()
 def history():
     """Print conversation history."""
-    global qa_chain
+    global qa_chain, chain_config
 
-    if qa_chain is None or qa_chain.memory is None:
+    if qa_chain is None:
         typer.echo("No active chat session or conversation history.")
         return
 
-    # Print conversation history from memory
-    for message in qa_chain.memory.chat_memory.messages:
-        typer.echo(f"{message.type.capitalize()}: {message.content}")
+    # Get the current state from the LangGraph chain
+    try:
+        # Different ways to access state depending on LangGraph version
+        try:
+            # Try direct state access first
+            current_state = qa_chain.get_current_state()
+        except AttributeError:
+            try:
+                # Try getting state through config
+                if chain_config:
+                    current_state = qa_chain.get_state_value(chain_config)
+                else:
+                    current_state = qa_chain.get_state()
+            except Exception:
+                # Fall back to direct state if other methods fail
+                current_state = qa_chain.get_state() if hasattr(qa_chain, "get_state") else None
+        
+        # Extract messages from the state
+        if current_state and isinstance(current_state, dict) and "messages" in current_state and current_state["messages"]:
+            # Print conversation history
+            typer.echo("\n--- Conversation History ---")
+            for message in current_state["messages"]:
+                # Handle different message types
+                if isinstance(message, HumanMessage):
+                    typer.echo(f"Human: {message.content}")
+                elif isinstance(message, AIMessage):
+                    typer.echo(f"AI: {message.content}")
+                else:
+                    typer.echo(f"Message: {str(message)}")
+            typer.echo("---------------------------\n")
+        else:
+            typer.echo("No messages in conversation history yet. Start a chat to see history.")
+    except Exception as e:
+        typer.echo(f"Error retrieving conversation history: {str(e)}")
+        typer.echo("Try starting a new chat session first.")
+        return
 
 
 @app.command()
