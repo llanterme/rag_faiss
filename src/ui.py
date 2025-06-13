@@ -325,61 +325,11 @@ def main():
                 if st.button(f"Process {len(uploaded_files)} Files", type="primary"):
                     ingest_documents(files=uploaded_files)
             
-            # Method divider
-            st.write("---")
-            st.write("**OR select a folder from your computer**")
-            
-            # Upload method 2: Folder path entry
-            if "folder_path" not in st.session_state:
-                st.session_state.folder_path = ""
-                
-            folder_path = st.text_input(
-                "Folder path", 
-                value=st.session_state.folder_path,
-                placeholder="Enter full path to a folder"
-            )
-            
-            # Check the folder path for documents
-            if folder_path and os.path.isdir(folder_path):
-                st.session_state.folder_path = folder_path
-                
-                # Count documents
-                file_count, sample_files = count_supported_files(folder_path)
-                
-                if file_count > 0:
-                    st.success(f"Found {file_count} document(s) in folder")
-                    with st.expander("Preview documents", expanded=True):
-                        for file in sample_files:
-                            st.write(f"📄 {file}")
-                        if file_count > len(sample_files):
-                            st.write(f"...and {file_count - len(sample_files)} more")
-                    
-                    if st.button(f"Process Folder ({file_count} documents)", type="primary"):
-                        ingest_documents(folder_path=folder_path)
-                else:
-                    st.warning("No supported documents found in this folder")
-                    st.button("Process Folder", disabled=True)
-            elif folder_path and not os.path.isdir(folder_path):
-                st.error("Not a valid directory")
-                
-            # Quick path examples
-            common_paths = [
-                ("Home", os.path.expanduser("~")),
-                ("Documents", os.path.join(os.path.expanduser("~"), "Documents")),
-                ("Downloads", os.path.join(os.path.expanduser("~"), "Downloads")),
-            ]
-            
-            # Show quick access buttons
-            st.write("Quick access:")
-            cols = st.columns(len(common_paths))
-            for i, (name, path) in enumerate(common_paths):
-                if cols[i].button(name):
-                    st.session_state.folder_path = path
-                    st.rerun()
-                
-            # For template rendering: show sidebar/main content separation
+            # Leave some space between UI elements
             st.write("")
-            st.caption("Select a method above to add documents to the knowledge base")
+                
+            # Leave a clean UI
+            st.write("")
     
     # Check if vector store exists
     if not st.session_state.index_exists:
