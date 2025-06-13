@@ -48,7 +48,7 @@ The web interface allows you to:
 
 1. Ingest documents:
    ```
-   poetry run python -m src.cli ingest /path/to/document.pdf
+   poetry run python -m src.cli ingest /path/to/documents
    ```
 
 2. Start a chat session:

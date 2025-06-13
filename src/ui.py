@@ -1,11 +1,13 @@
 """Streamlit UI for document chat application.
 
 This module provides a web interface for document ingestion, chat interaction,
-and source attribution using Streamlit.
+and source attribution using Streamlit. Supports both individual file uploads
+and folder-based document ingestion.
 """
 
 import os
 import tempfile
+import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -27,22 +29,23 @@ def initialize_session_state():
     if "sources" not in st.session_state:
         st.session_state.sources = []
     
+    # Initialize index_exists flag if not present
+    if "index_exists" not in st.session_state:
+        st.session_state.index_exists = False
+        
     if "retrieval_chain" not in st.session_state:
+        # Check if the index file exists before attempting to load it
+        index_path = settings.vector_store_path / settings.faiss_index_filename
+        if not index_path.exists() or not (index_path / "index.faiss").exists():
+            st.info(f"No existing index found at {index_path}")
+            st.info("Please upload documents using the sidebar to create a new index.")
+            st.session_state.index_exists = False
+            return
+            
         try:
             # Try to load existing index
             st.info("Attempting to load vector index...")
-            # Try to load the index using the same function as the CLI
-            try:
-                st.write(f"Using vector store path: {settings.vector_store_path}")
-                st.write(f"Expected index filename: {settings.faiss_index_filename}")
-                
-                index = load_index()
-                st.success("Successfully loaded FAISS index")
-            except FileNotFoundError as e:
-                st.warning(f"Index file not found: {str(e)}")
-                st.info("The UI and CLI might use different working directories. Try uploading documents through this UI to create the index.")
-                st.session_state.index_exists = False
-                return
+            index = load_index()
             st.success(f"Successfully loaded FAISS index with {len(index.index_to_docstore_id)} documents")
             
             # Initialize the retrieval chain
@@ -50,7 +53,6 @@ def initialize_session_state():
             st.session_state.retrieval_chain = build_retrieval_chain(index)
             st.success("Retrieval chain built successfully")
             st.session_state.index_exists = True
-            
         except Exception as e:
             import traceback
             st.error(f"Error loading index: {str(e)}")
@@ -75,6 +77,33 @@ def display_chat_history():
                             st.write(f"📄 {source['source']}")
 
 
+def process_file(file_path: Path) -> Tuple[str, str]:
+    """Process a single file and return its content.
+    
+    Args:
+        file_path: Path to the file to process
+        
+    Returns:
+        Tuple containing the file name and extracted text content
+    """
+    if not file_path.exists():
+        raise FileNotFoundError(f"File {file_path} does not exist")
+        
+    file_name = file_path.name
+    
+    # Process based on file type
+    if file_path.suffix.lower() == ".txt":
+        content = load_txt(file_path)
+    elif file_path.suffix.lower() == ".pdf":
+        content = load_pdf(file_path)
+    elif file_path.suffix.lower() in [".docx", ".doc"]:
+        content = load_docx(file_path)
+    else:
+        raise ValueError(f"Unsupported file type: {file_path.suffix}")
+        
+    return file_name, content
+
+
 def process_uploaded_file(uploaded_file) -> Tuple[str, str]:
     """Process an uploaded file and return its content.
     
@@ -91,40 +120,122 @@ def process_uploaded_file(uploaded_file) -> Tuple[str, str]:
     
     # Process based on file type
     file_path = Path(temp_path)
-    if uploaded_file.name.lower().endswith(".txt"):
-        content = load_txt(file_path)
-    elif uploaded_file.name.lower().endswith(".pdf"):
-        content = load_pdf(file_path)
-    elif uploaded_file.name.lower().endswith((".docx", ".doc")):
-        content = load_docx(file_path)
-    else:
+    try:
+        file_name = uploaded_file.name
+        if file_name.lower().endswith(".txt"):
+            content = load_txt(file_path)
+        elif file_name.lower().endswith(".pdf"):
+            content = load_pdf(file_path)
+        elif file_name.lower().endswith((".docx", ".doc")):
+            content = load_docx(file_path)
+        else:
+            raise ValueError(f"Unsupported file type: {file_name}")
+            
+        return file_name, content
+    except Exception as e:
         os.unlink(temp_path)  # Clean up the temp file
-        raise ValueError(f"Unsupported file type: {uploaded_file.name}")
+        raise e
+
+
+
+
+
+def count_supported_files(directory_path: str) -> Tuple[int, List[str]]:
+    """Count supported document files in a directory and its subdirectories.
     
-    return uploaded_file.name, content
+    Args:
+        directory_path: The path to the directory to scan
+        
+    Returns:
+        A tuple with (count, sample_files) where count is the total number of files
+        and sample_files is a list of example file paths (limited to 5)
+    """
+    count = 0
+    sample_files = []
+    
+    try:
+        # Recursively scan the folder for supported files
+        for root, _, files in os.walk(directory_path):
+            for file in files:
+                if file.lower().endswith((".txt", ".pdf", ".docx", ".doc")):
+                    count += 1
+                    if len(sample_files) < 5:
+                        # Add a shortened relative path for display
+                        rel_path = os.path.relpath(os.path.join(root, file), directory_path)
+                        sample_files.append(rel_path)
+    except Exception as e:
+        print(f"Error scanning directory {directory_path}: {e}")
+    
+    return count, sample_files
 
 
-def ingest_documents(files):
+def process_folder(folder_path: str) -> List[Tuple[str, str]]:
+    """Process all supported files in a folder.
+    
+    Args:
+        folder_path: Path to the folder containing documents
+        
+    Returns:
+        List of tuples containing file names and their content
+    """
+    folder = Path(folder_path)
+    if not folder.exists():
+        raise FileNotFoundError(f"Folder {folder_path} does not exist")
+    if not folder.is_dir():
+        raise ValueError(f"{folder_path} is not a directory")
+    
+    documents = []  # List of (doc_name, content)
+    supported_extensions = [".txt", ".pdf", ".docx", ".doc"]
+    
+    # Find all supported files in the directory (including subdirectories)
+    for file_path in folder.glob("**/*"):
+        if file_path.is_file() and file_path.suffix.lower() in supported_extensions:
+            try:
+                file_name, content = process_file(file_path)
+                documents.append((file_name, content))
+            except Exception as e:
+                # Log the error but continue processing other files
+                print(f"Error processing {file_path}: {str(e)}")
+    
+    return documents
+
+
+def ingest_documents(files=None, folder_path=None):
     """Process and ingest documents into the vector store.
     
     Args:
-        files: List of uploaded Streamlit file objects
+        files: List of uploaded Streamlit file objects (optional)
+        folder_path: Path to a folder containing documents (optional)
     """
-    if not files:
-        st.error("No files uploaded")
+    if not files and not folder_path:
+        st.error("No files or folder specified")
         return
     
     documents = []  # List of (doc_name, content)
     progress_text = st.empty()
     
-    # Process each uploaded file
-    for file in files:
-        progress_text.write(f"Processing {file.name}...")
+    # Process uploaded files if provided
+    if files:
+        for file in files:
+            progress_text.write(f"Processing {file.name}...")
+            try:
+                doc_name, content = process_uploaded_file(file)
+                documents.append((doc_name, content))
+            except Exception as e:
+                st.error(f"Error processing {file.name}: {str(e)}")
+    
+    # Process folder if provided
+    if folder_path:
+        progress_text.write(f"Processing files from folder: {folder_path}...")
         try:
-            doc_name, content = process_uploaded_file(file)
-            documents.append((doc_name, content))
+            folder_documents = process_folder(folder_path)
+            if folder_documents:
+                progress_text.write(f"Found {len(folder_documents)} documents in folder")
+                documents.extend(folder_documents)
+            else:
+                st.warning(f"No supported documents found in folder: {folder_path}")
         except Exception as e:
-            st.error(f"Error processing {file.name}: {str(e)}")
+            st.error(f"Error processing folder {folder_path}: {str(e)}")
     
     if not documents:
         st.error("No valid documents to process")
@@ -182,14 +293,93 @@ def main():
         st.header("Document Upload")
         st.write("Upload documents to chat with")
         
-        uploaded_files = st.file_uploader(
-            "Upload PDF, DOCX, or TXT files",
-            accept_multiple_files=True,
-            type=["pdf", "docx", "txt"]
-        )
+        upload_tab, folder_tab = st.tabs(["Upload Files", "Select Folder"])
         
-        if st.button("Process Documents", disabled=len(uploaded_files) == 0):
-            ingest_documents(uploaded_files)
+        with upload_tab:
+            uploaded_files = st.file_uploader(
+                "Upload PDF, DOCX, or TXT files",
+                accept_multiple_files=True,
+                type=["pdf", "docx", "txt"]
+            )
+            
+            if st.button("Process Files", disabled=len(uploaded_files) == 0):
+                ingest_documents(files=uploaded_files)
+        
+        with folder_tab:
+            st.write("Select a folder containing documents:")
+            
+            # Upload method 1: Direct file upload (multiple files)
+            uploaded_files = st.file_uploader(
+                "Choose documents", 
+                type=["pdf", "txt", "docx", "doc"], 
+                accept_multiple_files=True,
+                help="Upload multiple document files (.txt, .pdf, .docx)"
+            )
+            
+            if uploaded_files:
+                st.success(f"Selected {len(uploaded_files)} file(s)")
+                with st.expander("Files ready for processing"):
+                    for file in uploaded_files:
+                        st.write(f"📄 {file.name}")
+                        
+                if st.button(f"Process {len(uploaded_files)} Files", type="primary"):
+                    ingest_documents(files=uploaded_files)
+            
+            # Method divider
+            st.write("---")
+            st.write("**OR select a folder from your computer**")
+            
+            # Upload method 2: Folder path entry
+            if "folder_path" not in st.session_state:
+                st.session_state.folder_path = ""
+                
+            folder_path = st.text_input(
+                "Folder path", 
+                value=st.session_state.folder_path,
+                placeholder="Enter full path to a folder"
+            )
+            
+            # Check the folder path for documents
+            if folder_path and os.path.isdir(folder_path):
+                st.session_state.folder_path = folder_path
+                
+                # Count documents
+                file_count, sample_files = count_supported_files(folder_path)
+                
+                if file_count > 0:
+                    st.success(f"Found {file_count} document(s) in folder")
+                    with st.expander("Preview documents", expanded=True):
+                        for file in sample_files:
+                            st.write(f"📄 {file}")
+                        if file_count > len(sample_files):
+                            st.write(f"...and {file_count - len(sample_files)} more")
+                    
+                    if st.button(f"Process Folder ({file_count} documents)", type="primary"):
+                        ingest_documents(folder_path=folder_path)
+                else:
+                    st.warning("No supported documents found in this folder")
+                    st.button("Process Folder", disabled=True)
+            elif folder_path and not os.path.isdir(folder_path):
+                st.error("Not a valid directory")
+                
+            # Quick path examples
+            common_paths = [
+                ("Home", os.path.expanduser("~")),
+                ("Documents", os.path.join(os.path.expanduser("~"), "Documents")),
+                ("Downloads", os.path.join(os.path.expanduser("~"), "Downloads")),
+            ]
+            
+            # Show quick access buttons
+            st.write("Quick access:")
+            cols = st.columns(len(common_paths))
+            for i, (name, path) in enumerate(common_paths):
+                if cols[i].button(name):
+                    st.session_state.folder_path = path
+                    st.rerun()
+                
+            # For template rendering: show sidebar/main content separation
+            st.write("")
+            st.caption("Select a method above to add documents to the knowledge base")
     
     # Check if vector store exists
     if not st.session_state.index_exists:
