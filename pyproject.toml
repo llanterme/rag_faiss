@@ -9,6 +9,8 @@ packages = [{include = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 langchain = "^0.3.25"
+langchain-community = "^0.3.25"
+langchain-ollama = "0.3.3"
 langgraph = "^0.4.8"
 openai = "^1.86.0"
 faiss-cpu = "^1.11.0"
@@ -19,6 +21,7 @@ pydantic = "^2.6.1"
 python-dotenv = "^1.0.0"
 cryptography = "^45.0.4"
 streamlit = "^1.30.0"
+requests = "^2.31.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.3.0"

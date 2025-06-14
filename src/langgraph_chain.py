@@ -4,17 +4,19 @@ This module implements retrieval functionality using LangGraph for improved
 conversation memory management and state persistence.
 """
 
-from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict, Union
 
 from langchain_community.vectorstores import FAISS
+from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnablePassthrough
+from langchain_ollama import ChatOllama
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
-from src.config import settings
+from src.config import LLMProvider, settings
 
 
 class ChatState(TypedDict):
@@ -35,8 +37,40 @@ class ChatState(TypedDict):
     answer: Optional[str]
 
 
+def get_llm(model_name: Optional[str] = None) -> BaseChatModel:
+    """Get the appropriate LLM based on settings.
+    
+    Args:
+        model_name: Optional model name to override the one in settings
+        
+    Returns:
+        Chat model instance based on the configured provider
+    """
+    # Use the model name from settings if not provided
+    model = model_name or settings.llm_model
+    
+    if settings.llm_provider == LLMProvider.OPENAI:
+        return ChatOpenAI(
+            model_name=model,
+            temperature=settings.temperature,
+            openai_api_key=settings.openai_api_key,
+        )
+    elif settings.llm_provider == LLMProvider.OLLAMA:
+        # Default to llama3.2 if using Ollama without a specific model
+        if not model or model == "gpt-4o":
+            model = "llama3.2:latest"
+            
+        return ChatOllama(
+            model=model,
+            temperature=settings.temperature,
+            base_url=settings.ollama_base_url,
+        )
+    else:
+        raise ValueError(f"Unsupported LLM provider: {settings.llm_provider}")
+
+
 def create_graph_chain(
-    index: FAISS, model_name: str = "gpt-4o"
+    index: FAISS, model_name: Optional[str] = None
 ) -> StateGraph:
     """Create a LangGraph-based retrieval QA chain.
 
@@ -45,17 +79,13 @@ def create_graph_chain(
 
     Args:
         index: FAISS vector store for retrieval
-        model_name: Name of the OpenAI model to use
+        model_name: Optional name of the model to use (overrides settings)
 
     Returns:
         A configured StateGraph for chat interaction
     """
-    # Initialize the language model
-    llm = ChatOpenAI(
-        model_name=model_name,
-        temperature=settings.temperature,
-        openai_api_key=settings.openai_api_key,
-    )
+    # Initialize the language model based on the configured provider
+    llm = get_llm(model_name)
 
     # Define retrieval function
     def retrieve(state: ChatState) -> ChatState:
@@ -160,7 +190,7 @@ def create_graph_chain(
 
         # Generate response from LLM
         try:
-            print(f"Calling OpenAI API with {len(messages)} messages")
+            # print(f"Calling OpenAI API with {len(messages)} messages")
             response = llm.invoke(messages)
             if response and hasattr(response, "content") and response.content:
                 return {**state, "answer": response.content}
@@ -230,7 +260,7 @@ def create_graph_chain(
 
 
 def build_retrieval_chain(
-    index: FAISS, model_name: str = "gpt-4o"
+    index: FAISS, model_name: Optional[str] = None
 ) -> Any:
     """Build a retrieval chain for question answering.
 
