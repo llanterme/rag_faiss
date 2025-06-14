@@ -1,29 +1,70 @@
 """Configuration settings for the document chat application."""
 
 import os
+import json
+from enum import Enum
 from pathlib import Path
 from typing import Optional
+from datetime import datetime
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class LLMProvider(str, Enum):
+    """Enum for supported LLM providers."""
+    OPENAI = "openai"
+    OLLAMA = "ollama"
+
+
+class EmbeddingProvider(str, Enum):
+    """Enum for supported embedding providers."""
+    OPENAI = "openai"
+    OLLAMA = "ollama"
 
 
 class Settings(BaseSettings):
     """Settings for the document chat application.
 
     Attributes:
+        llm_provider (LLMProvider): LLM provider to use (openai or ollama).
+        llm_model (str): Model name to use with the selected provider.
+        embedding_provider (EmbeddingProvider): Embedding provider to use (openai or ollama).
+        embedding_model (str): Embedding model name to use with the selected provider.
         openai_api_key (str): OpenAI API key for embeddings and chat completion.
+        ollama_base_url (str): Base URL for Ollama API.
         vector_store_path (Path): Path to store the FAISS vector index.
         chunk_size (int): Size of document chunks for embedding.
         chunk_overlap (int): Overlap between document chunks.
         faiss_index_filename (str): Filename for the FAISS index.
-        temperature (float): Temperature for the OpenAI model.
+        faiss_metadata_filename (str): Filename for the FAISS index metadata.
+        temperature (float): Temperature for the LLM model.
         graph_state_path (Path): Path to store persistent graph state data.
         enable_persistence (bool): Whether to enable graph state persistence.
     """
 
+    llm_provider: LLMProvider = Field(
+        default=LLMProvider.OPENAI,
+        description="LLM provider to use (openai or ollama)"
+    )
+    llm_model: str = Field(
+        default="gpt-4o",
+        description="Model name to use with the selected provider"
+    )
+    embedding_provider: EmbeddingProvider = Field(
+        default=EmbeddingProvider.OPENAI,
+        description="Embedding provider to use (openai or ollama)"
+    )
+    embedding_model: str = Field(
+        default="text-embedding-ada-002",
+        description="Embedding model name to use with the selected provider"
+    )
     openai_api_key: str = Field(
         default="", description="OpenAI API key for embeddings and chat completion"
+    )
+    ollama_base_url: str = Field(
+        default="http://localhost:11434",
+        description="Base URL for Ollama API"
     )
     vector_store_path: Path = Field(
         default=Path("./data/vector_store"),
@@ -37,6 +78,9 @@ class Settings(BaseSettings):
     )
     faiss_index_filename: str = Field(
         default="faiss_index", description="Filename for the FAISS index"
+    )
+    faiss_metadata_filename: str = Field(
+        default="faiss_index.meta.json", description="Filename for the FAISS index metadata"
     )
     temperature: float = Field(
         default=0.0, description="Temperature for the OpenAI model"

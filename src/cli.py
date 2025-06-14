@@ -1,19 +1,31 @@
-"""Command-line interface for the document-chat application."""
+"""Command-line interface for the document chat application."""
 
 import os
 import sys
+import warnings
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+# Suppress specific LangChain deprecation warnings related to Ollama
+# These are no longer needed as we've migrated to langchain-ollama
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="langchain")
 
 import typer
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import AIMessage, HumanMessage
 
-from src.config import settings
+from src.config import LLMProvider, EmbeddingProvider, settings
 from src.embeddings import create_faiss_index, load_index, save_index
 from src.ingestion import load_docx, load_pdf, load_txt
 from src.langgraph_chain import build_retrieval_chain
+
+# Create enums for CLI provider options that match our internal enums
+class ProviderOption(str, Enum):
+    OPENAI = "openai"
+    OLLAMA = "ollama"
+
 
 app = typer.Typer(help="Document chat application")
 
@@ -24,33 +36,59 @@ chain_config: Optional[Dict] = None
 
 @app.command()
 def ingest(
-    path: Path = typer.Argument(..., help="Path to document or directory to ingest")
+    directory: str = typer.Argument(
+        ..., help="Directory containing documents to ingest"
+    )
 ):
-    """Ingest documents into the vector store."""
-    if not path.exists():
-        typer.echo(f"Error: Path '{path}' does not exist")
+    """Ingest documents from a directory into the vector store."""
+    # Display the embedding configuration being used
+    typer.echo(f"Using {settings.embedding_provider.value.title()} embeddings with model {settings.embedding_model}")
+    
+    # Check if OpenAI API key is set when using OpenAI embeddings
+    if settings.embedding_provider == EmbeddingProvider.OPENAI and not settings.openai_api_key:
+        typer.echo("Error: OpenAI API key is not set. Please set the OPENAI_API_KEY environment variable.")
+        return
+    
+    # Check if Ollama is running when using Ollama embeddings
+    if settings.embedding_provider == EmbeddingProvider.OLLAMA:
+        import requests
+        try:
+            requests.get(f"{settings.ollama_base_url}/api/version", timeout=2)
+        except requests.exceptions.ConnectionError:
+            typer.echo(f"\nError: Cannot connect to Ollama at {settings.ollama_base_url}")
+            typer.echo("Make sure Ollama is installed and running.")
+            typer.echo("Installation instructions: https://ollama.com/download")
+            typer.echo("\nAfter installing, start Ollama and try again.")
+            return
+    
+    # Convert to Path object
+    dir_path = Path(directory)
+    
+    # Check if directory exists
+    if not dir_path.exists() or not dir_path.is_dir():
+        typer.echo(f"Error: {directory} is not a valid directory")
         return
 
     documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
 
-    if path.is_file():
+    if dir_path.is_file():
         # Process single file
-        if path.suffix.lower() == ".txt":
-            typer.echo(f"Ingesting TXT file: {path}")
-            documents.append((str(path), load_txt(path)))
-        elif path.suffix.lower() == ".pdf":
-            typer.echo(f"Ingesting PDF file: {path}")
-            documents.append((str(path), load_pdf(path)))
-        elif path.suffix.lower() in [".docx", ".doc"]:
-            typer.echo(f"Ingesting DOCX file: {path}")
-            documents.append((str(path), load_docx(path)))
+        if dir_path.suffix.lower() == ".txt":
+            typer.echo(f"Ingesting TXT file: {dir_path}")
+            documents.append((str(dir_path), load_txt(dir_path)))
+        elif dir_path.suffix.lower() == ".pdf":
+            typer.echo(f"Ingesting PDF file: {dir_path}")
+            documents.append((str(dir_path), load_pdf(dir_path)))
+        elif dir_path.suffix.lower() in [".docx", ".doc"]:
+            typer.echo(f"Ingesting DOCX file: {dir_path}")
+            documents.append((str(dir_path), load_docx(dir_path)))
         else:
-            typer.echo(f"Unsupported file type: {path.suffix}")
+            typer.echo(f"Unsupported file type: {dir_path.suffix}")
             return
-    elif path.is_dir():
+    elif dir_path.is_dir():
         # Process all supported files in directory
-        typer.echo(f"Ingesting files from directory: {path}")
-        for file_path in path.glob("**/*"):
+        typer.echo(f"Ingesting files from directory: {dir_path}")
+        for file_path in dir_path.glob("**/*"):
             if file_path.is_file():
                 if file_path.suffix.lower() == ".txt":
                     typer.echo(f"Ingesting TXT file: {file_path}")
@@ -98,18 +136,63 @@ def ingest(
 
 
 @app.command()
-def chat():
-    """Start interactive chat session."""
+def chat(
+    llm_provider: Optional[str] = typer.Option(
+        None, 
+        help="LLM provider to use for chat (openai or ollama)"
+    ),
+    llm_model: Optional[str] = typer.Option(
+        None, 
+        help="LLM model name to use for chat"
+    )
+):
+    """Start an interactive chat session with the AI assistant."""
     global qa_chain, chain_config
-
+    
+    # Update LLM provider if specified (this doesn't affect embeddings)
+    if llm_provider:
+        try:
+            settings.llm_provider = LLMProvider(llm_provider.lower())
+        except ValueError:
+            typer.echo(f"Invalid provider: {llm_provider}. Must be 'openai' or 'ollama'.")
+            return
+    
+    # Update LLM model if specified (this doesn't affect embeddings)
+    if llm_model:
+        settings.llm_model = llm_model
+    
+    # Display current settings
+    print(f"Active LLM provider: {settings.llm_provider.value}")
+    print(f"Active model: {settings.llm_model}")
+    
+    # Check if OpenAI API key is set when using OpenAI
+    if settings.llm_provider == LLMProvider.OPENAI and not settings.openai_api_key:
+        print("Error: OpenAI API key is not set. Please set the OPENAI_API_KEY environment variable.")
+        return
+    
+    # Check if Ollama is running when using Ollama
+    if settings.llm_provider == LLMProvider.OLLAMA:
+        import requests
+        try:
+            requests.get(f"{settings.ollama_base_url}/api/version", timeout=2)
+        except requests.exceptions.ConnectionError:
+            print(f"\nError: Cannot connect to Ollama at {settings.ollama_base_url}")
+            print("Make sure Ollama is installed and running.")
+            print("Installation instructions: https://ollama.com/download")
+            print("\nAfter installing, start Ollama and try again.")
+            return
+    
     try:
         # Try to load existing index
         index = load_index()
-        typer.echo("Loaded existing vector index.")
+        print("Loaded existing vector index.")
     except FileNotFoundError:
-        typer.echo(
-            "Error: No vector index found. Please ingest documents first using 'ingest'."
-        )
+        print("No vector index found. Please ingest documents first.")
+        return
+    except ValueError as e:
+        # This will be raised by our modified load_index function
+        # when there's a dimension mismatch
+        print(f"Error loading index: {str(e)}")
         return
 
     # Build retrieval chain with LangGraph
@@ -197,6 +280,36 @@ def history():
         typer.echo(f"Error retrieving conversation history: {str(e)}")
         typer.echo("Try starting a new chat session first.")
         return
+
+
+@app.command()
+def provider():
+    """Display the current LLM and embedding provider configuration."""
+    typer.echo("=== LLM Configuration ===")
+    typer.echo(f"LLM provider: {settings.llm_provider.value}")
+    typer.echo(f"LLM model: {settings.llm_model}")
+    
+    typer.echo("\n=== Embedding Configuration ===")
+    typer.echo(f"Embedding provider: {settings.embedding_provider.value}")
+    typer.echo(f"Embedding model: {settings.embedding_model}")
+    
+    # Show additional provider-specific information
+    typer.echo("\n=== Provider Details ===")
+    if settings.embedding_provider == EmbeddingProvider.OPENAI or settings.llm_provider == LLMProvider.OPENAI:
+        api_key_status = "configured" if settings.openai_api_key else "missing"
+        typer.echo(f"OpenAI API key: {api_key_status}")
+    
+    if settings.embedding_provider == EmbeddingProvider.OLLAMA or settings.llm_provider == LLMProvider.OLLAMA:
+        typer.echo(f"Ollama base URL: {settings.ollama_base_url}")
+    
+    # Provide instructions for changing the configuration
+    typer.echo("\nTo change the LLM configuration (for chat), use:")
+    typer.echo("  chat --llm-provider openai|ollama [--llm-model MODEL_NAME]")
+    
+    typer.echo("\nTo change the embedding configuration, edit your .env file or settings:")
+    typer.echo("  EMBEDDING_PROVIDER=openai|ollama")
+    typer.echo("  EMBEDDING_MODEL=model_name")
+    typer.echo("\nNote: Changing the embedding configuration requires re-ingesting documents.")
 
 
 @app.command()

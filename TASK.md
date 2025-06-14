@@ -14,8 +14,37 @@
 - [ ] Run linting checks with flake8 (skipped per request)
 - [ ] Ensure mypy reports no errors (pending)
 - [x] Update TASK.md with progress
+- [x] Add Ollama as a pluggable LLM backend
+- [x] Migrate Ollama integration to langchain-ollama package
+- [x] Implement embedding model alignment and config-driven selection
 
 ## Completed Tasks
+
+### 2025-06-14
+- Implemented embedding model alignment and config-driven selection:
+  - Updated config.py to separate LLM and embedding configuration
+  - Added metadata storage for embedding model information
+  - Implemented validation to prevent mismatched embedding models
+  - Updated CLI to use config-driven approach instead of command-line parameters
+  - Improved error messages with clear guidance on fixing embedding mismatches
+  - Updated README.md with documentation on the new config-driven approach
+  - Ensured backward compatibility with existing indexes
+- Migrated Ollama integration to use the official langchain-ollama package:
+  - Added langchain-ollama v0.3.3 dependency to pyproject.toml
+  - Updated imports in embeddings.py to use OllamaEmbeddings from langchain_ollama
+  - Updated imports in langgraph_chain.py to use ChatOllama from langchain_ollama
+  - Removed deprecation warnings by using the official package
+  - Updated documentation in README.md to reflect the changes
+  - Maintained backward compatibility with existing workflows
+
+- Added Ollama as a pluggable LLM backend:
+  - Added langchain-community dependency to pyproject.toml
+  - Updated config.py to add LLM provider selection and Ollama configuration
+  - Modified embeddings.py to support both OpenAI and Ollama embeddings
+  - Updated langgraph_chain.py to support both OpenAI and Ollama LLMs
+  - Enhanced CLI with provider selection and display options
+  - Updated README.md with usage examples for both providers
+  - Ensured backward compatibility with existing OpenAI workflows
 
 ### 2025-06-12
 - Created TASK.md file for progress tracking
