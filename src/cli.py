@@ -76,13 +76,19 @@ def ingest(
     # Split documents into chunks
     typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
     chunks = []
+    metadatas = []
     for doc_path, content in documents:
         doc_chunks = text_splitter.split_text(content)
-        typer.echo(f"  - {Path(doc_path).name}: {len(doc_chunks)} chunks")
-        chunks.extend(doc_chunks)
+        doc_name = Path(doc_path).name
+        typer.echo(f"  - {doc_name}: {len(doc_chunks)} chunks")
+        
+        # Add document source to each chunk's metadata
+        for chunk in doc_chunks:
+            chunks.append(chunk)
+            metadatas.append({"source": doc_name, "source_path": doc_path})
 
     typer.echo(f"Creating vector embeddings for {len(chunks)} text chunks...")
-    index = create_faiss_index(chunks)
+    index = create_faiss_index(chunks, metadatas=metadatas)
 
     # Save index to disk
     save_index(index)

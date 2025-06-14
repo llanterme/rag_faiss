@@ -52,6 +52,47 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
+    
+    def __init__(self, **data):
+        super().__init__(**data)
+        # Make sure paths are absolute by resolving them relative to the project root
+        self._fix_paths()
+    
+    def _fix_paths(self) -> None:
+        """Ensure all paths are absolute regardless of how the app is executed."""
+        # Determine the project root directory by locating the pyproject.toml
+        # This works whether we're running from the project root or any subdirectory
+        current_dir = Path().absolute()
+        project_root = self._find_project_root(current_dir)
+        
+        # Resolve relative paths to absolute paths
+        if not self.vector_store_path.is_absolute():
+            # If the path starts with ./ or ../, resolve from project root
+            if str(self.vector_store_path).startswith("./") or str(self.vector_store_path).startswith("../"):
+                self.vector_store_path = project_root / self.vector_store_path.relative_to(Path("./"))
+            else:
+                self.vector_store_path = project_root / self.vector_store_path
+            
+        if not self.graph_state_path.is_absolute():
+            if str(self.graph_state_path).startswith("./") or str(self.graph_state_path).startswith("../"):
+                self.graph_state_path = project_root / self.graph_state_path.relative_to(Path("./"))
+            else:
+                self.graph_state_path = project_root / self.graph_state_path
+    
+    def _find_project_root(self, start_dir: Path) -> Path:
+        """Find the project root by looking for pyproject.toml"""
+        current = start_dir
+        # Traverse up to 5 parent directories looking for pyproject.toml
+        for _ in range(5):
+            if (current / "pyproject.toml").exists():
+                return current
+            parent = current.parent
+            if parent == current:  # Reached filesystem root
+                break
+            current = parent
+        
+        # Fallback to the current directory if project root not found
+        return start_dir
 
 
 # Create a singleton instance of settings

@@ -1,7 +1,7 @@
 """Vector store and embeddings management module."""
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
@@ -9,22 +9,24 @@ from langchain_openai import OpenAIEmbeddings
 from src.config import settings
 
 
-def create_faiss_index(texts: List[str]) -> FAISS:
+def create_faiss_index(texts: List[str], metadatas: Optional[List[Dict]] = None) -> FAISS:
     """Create a FAISS vector store from a list of text chunks.
 
     Args:
         texts: List of text chunks to embed.
+        metadatas: Optional list of metadata dictionaries for each text chunk.
+            Used to store document sources and other information.
 
     Returns:
-        FAISS vector store containing the embedded texts.
+        FAISS vector store containing the embedded texts with metadata.
     """
     # Use OpenAI embeddings with API key from settings
     embeddings = OpenAIEmbeddings(
         model="text-embedding-ada-002", openai_api_key=settings.openai_api_key
     )
 
-    # Create FAISS index from texts
-    index = FAISS.from_texts(texts, embeddings)
+    # Create FAISS index from texts with metadata
+    index = FAISS.from_texts(texts, embeddings, metadatas=metadatas)
 
     return index
 
