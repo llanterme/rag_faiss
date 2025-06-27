@@ -23,6 +23,7 @@ cryptography = "^45.0.4"
 streamlit = "^1.30.0"
 requests = "^2.31.0"
 langchain-openai = "^0.3.26"
+logfire = "^3.21.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.3.0"

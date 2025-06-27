@@ -4,6 +4,7 @@ This module implements retrieval functionality using LangGraph for improved
 conversation memory management and state persistence.
 """
 
+import time
 from typing import Annotated, Any, Dict, List, Optional, TypedDict, Union
 
 from langchain_community.vectorstores import FAISS
@@ -17,6 +18,13 @@ from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel, Field
 
 from src.config import LLMProvider, settings
+from src.observability import logfire_manager, log_operation
+from src.prompts import create_rag_prompt, PromptStyle
+
+try:
+    import logfire
+except ImportError:
+    logfire = None
 
 
 class ChatState(TypedDict):
@@ -88,6 +96,7 @@ def create_graph_chain(
     llm = get_llm(model_name)
 
     # Define retrieval function
+    @log_operation("retrieve_documents")
     def retrieve(state: ChatState) -> ChatState:
         """Retrieve relevant documents from the vector store.
 
@@ -107,18 +116,26 @@ def create_graph_chain(
             print(f"Invalid question format: {question}")
             return {**state, "context": "", "sources": []}
         
+        start_time = time.time()
+        
         try:
-            # Configure retriever with proper settings
-            retriever = index.as_retriever(
-                search_kwargs={"k": 4}  # Retrieve top 4 documents
-            )
-            
-            # Use invoke method instead of deprecated get_relevant_documents
-            docs = retriever.invoke(question)
-            
-            if not docs:
-                print("No documents retrieved for the question")
-                return {**state, "context": "", "sources": []}
+            with logfire_manager.span("document_retrieval") as span:
+                span.set_attribute("query", question[:200] + "..." if len(question) > 200 else question)
+                span.set_attribute("query_length", len(question))
+                
+                # Configure retriever with proper settings
+                retriever = index.as_retriever(
+                    search_kwargs={"k": 4}  # Retrieve top 4 documents
+                )
+                
+                # Use invoke method instead of deprecated get_relevant_documents
+                docs = retriever.invoke(question)
+                
+                span.set_attribute("documents_retrieved", len(docs) if docs else 0)
+                
+                if not docs:
+                    print("No documents retrieved for the question")
+                    return {**state, "context": "", "sources": []}
                 
             # Extract document content and source information
             contents = []
@@ -154,6 +171,7 @@ def create_graph_chain(
             return {**state, "context": "", "sources": []}
 
     # Define answer generation function
+    @log_operation("generate_answer")
     def generate_answer(state: ChatState) -> ChatState:
         """Generate an answer using the LLM."""
         if not state.get("question"):
@@ -169,43 +187,109 @@ def create_graph_chain(
             print("Empty context string")
             return {**state, "answer": "I couldn't find any relevant information to answer your question."}
 
-        # Create the prompt with conversation history and retrieved context
-        messages = [
-            SystemMessage(
-                content=f"You are a helpful AI assistant answering questions based on the provided context.\n\nContext: {state['context']}"
-            ),
-        ]
+        start_time = time.time()
+        
+        with logfire_manager.span("llm_generation") as span:
+            span.set_attribute("question", state["question"][:200] + "..." if len(state["question"]) > 200 else state["question"])
+            span.set_attribute("context_length", len(state.get("context", "")))
+            span.set_attribute("llm_provider", str(settings.llm_provider))
+            span.set_attribute("llm_model", settings.llm_model)
+            
+            # Create enhanced prompt with better structure and instructions
+            enhanced_prompt = create_rag_prompt(
+                context=state['context'],
+                question=state['question'],
+                sources=state.get('sources', []),
+                style=getattr(settings, 'prompt_style', 'default')
+            )
+            
+            messages = [
+                SystemMessage(content=enhanced_prompt),
+            ]
 
-        # Add conversation history (validate before adding)
-        if state.get("messages") and isinstance(state["messages"], list):
-            # Only add valid messages
-            valid_messages = []
-            for msg in state["messages"]:
-                if hasattr(msg, "content") and msg.content is not None:
-                    valid_messages.append(msg)
-            messages.extend(valid_messages)
+            # Add conversation history (validate before adding)
+            if state.get("messages") and isinstance(state["messages"], list):
+                # Only add valid messages
+                valid_messages = []
+                for msg in state["messages"]:
+                    if hasattr(msg, "content") and msg.content is not None:
+                        valid_messages.append(msg)
+                messages.extend(valid_messages)
 
-        # Add the current question
-        messages.append(HumanMessage(content=state["question"]))
+            # Add the current question
+            messages.append(HumanMessage(content=state["question"]))
 
-        # Generate response from LLM
-        try:
-            # print(f"Calling OpenAI API with {len(messages)} messages")
-            response = llm.invoke(messages)
-            if response and hasattr(response, "content") and response.content:
-                return {**state, "answer": response.content}
-            else:
-                print("Empty or invalid response from LLM")
-                return {**state, "answer": "I received an empty response. Please try rephrasing your question."}
-        except Exception as e:
-            import traceback
-            print(f"Answer generation error: {str(e)}")
-            print(traceback.format_exc())
-            error_msg = f"Error: {str(e)}"
-            # For token limit errors, provide a more helpful message
-            if "maximum context length" in str(e).lower() or "token" in str(e).lower():
-                error_msg = "The context from your documents is too large for me to process. Try uploading shorter documents or ask a more specific question."
-            return {**state, "answer": error_msg}
+            span.set_attribute("message_count", len(messages))
+            span.set_attribute("total_input_length", sum(len(getattr(msg, 'content', '')) for msg in messages))
+            
+            # Log the full prompt being sent to the LLM (if enabled)
+            if settings.logfire_log_prompts:
+                prompt_messages = []
+                for msg in messages:
+                    if isinstance(msg, SystemMessage):
+                        prompt_messages.append(f"[SYSTEM]: {msg.content}")
+                    elif isinstance(msg, HumanMessage):
+                        prompt_messages.append(f"[HUMAN]: {msg.content}")
+                    elif isinstance(msg, AIMessage):
+                        prompt_messages.append(f"[AI]: {msg.content}")
+                
+                full_prompt = "\n\n".join(prompt_messages)
+                span.set_attribute("full_prompt", full_prompt[:1000] + "..." if len(full_prompt) > 1000 else full_prompt)
+                
+                # Also log to console for immediate visibility
+                if logfire:
+                    logfire.info(
+                        "LLM Prompt",
+                        prompt_preview=full_prompt[:500] + "..." if len(full_prompt) > 500 else full_prompt,
+                        prompt_length=len(full_prompt),
+                        message_breakdown={
+                            "system_messages": sum(1 for m in messages if isinstance(m, SystemMessage)),
+                            "human_messages": sum(1 for m in messages if isinstance(m, HumanMessage)),
+                            "ai_messages": sum(1 for m in messages if isinstance(m, AIMessage)),
+                        }
+                    )
+                else:
+                    # Fallback to print if logfire not available
+                    print(f"\n=== LLM PROMPT ===\n{full_prompt[:500]}{'...' if len(full_prompt) > 500 else ''}\n=================\n")
+
+            # Generate response from LLM
+            try:
+                # print(f"Calling OpenAI API with {len(messages)} messages")
+                response = llm.invoke(messages)
+                response_time = time.time() - start_time
+                
+                if response and hasattr(response, "content") and response.content:
+                    span.set_attribute("response_length", len(response.content))
+                    span.set_attribute("response_time_seconds", response_time)
+                    
+                    # Log the complete interaction
+                    logfire_manager.log_query(
+                        query=state["question"],
+                        response=response.content,
+                        sources=state.get("sources", []),
+                        response_time=response_time
+                    )
+                    
+                    return {**state, "answer": response.content}
+                else:
+                    print("Empty or invalid response from LLM")
+                    span.set_attribute("error", "empty_response")
+                    return {**state, "answer": "I received an empty response. Please try rephrasing your question."}
+            except Exception as e:
+                import traceback
+                print(f"Answer generation error: {str(e)}")
+                print(traceback.format_exc())
+                
+                span.set_attribute("error", str(e))
+                span.set_attribute("error_type", type(e).__name__)
+                
+                logfire_manager.log_error(e, "llm_generation")
+                
+                error_msg = f"Error: {str(e)}"
+                # For token limit errors, provide a more helpful message
+                if "maximum context length" in str(e).lower() or "token" in str(e).lower():
+                    error_msg = "The context from your documents is too large for me to process. Try uploading shorter documents or ask a more specific question."
+                return {**state, "answer": error_msg}
 
     # Define function to update conversation history
     def update_conversation(state: ChatState) -> ChatState:
@@ -229,14 +313,15 @@ def create_graph_chain(
             ai_message.sources = sources
         new_messages.append(ai_message)
         
-        # Create new state with updated messages and cleared question/answer/context
+        # Create new state with updated messages and preserve answer for final result
+        # Keep the answer in the final state so it can be returned to the user
         return {
             **state,
             "messages": new_messages,
             "question": None,
-            "answer": None,
+            "answer": state["answer"],  # Preserve the answer for the final result
             "context": None,
-            "sources": []
+            "sources": sources  # Keep sources for reference
         }
 
     # Create the graph

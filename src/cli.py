@@ -363,6 +363,95 @@ def provider():
 
 
 @app.command()
+def test_prompts(
+    style: str = typer.Option(
+        "default", 
+        help="Prompt style to test: default, detailed, concise, academic, technical"
+    )
+):
+    """Test different prompt styles with a sample query."""
+    from src.prompts import create_rag_prompt
+    
+    # Sample context and question for demonstration
+    sample_context = """
+Company Policy Manual - Section 3.2
+Employees are entitled to 15 days of paid vacation per year. Vacation requests must be submitted at least 2 weeks in advance through the HR portal. Emergency leave may be granted with manager approval.
+
+Benefits Guide - Chapter 4  
+Health insurance covers employee and immediate family members. The company matches 401k contributions up to 5% of salary. Professional development budget is $2000 per year per employee.
+"""
+    
+    sample_question = "What are the vacation and benefits policies?"
+    
+    # Test the prompt style
+    valid_styles = ["default", "detailed", "concise", "academic", "technical"]
+    if style not in valid_styles:
+        typer.echo(f"❌ Invalid style: {style}")
+        typer.echo(f"Valid options: {', '.join(valid_styles)}")
+        return
+    
+    typer.echo(f"🎯 Testing '{style}' prompt style")
+    typer.echo("=" * 60)
+    
+    enhanced_prompt = create_rag_prompt(
+        context=sample_context,
+        question=sample_question,
+        style=style
+    )
+    
+    typer.echo("📝 Generated Prompt:")
+    typer.echo("-" * 30)
+    typer.echo(enhanced_prompt)
+    
+    typer.echo("\n" + "=" * 60)
+    typer.echo(f"💡 To use this style permanently:")
+    typer.echo(f"   Add 'PROMPT_STYLE={style}' to your .env file")
+    
+    typer.echo(f"\n🧪 To test with actual documents:")
+    typer.echo(f"   1. Ingest some documents")
+    typer.echo(f"   2. Set PROMPT_STYLE={style} in .env")
+    typer.echo(f"   3. Run: poetry run python -m src.cli chat")
+
+
+@app.command()
+def observability():
+    """Show observability status and configuration."""
+    from src.observability import get_logfire_status
+    
+    status = get_logfire_status()
+    
+    typer.echo("🔍 Observability Status")
+    typer.echo("=" * 30)
+    typer.echo(f"Logfire Available: {'✅' if status['available'] else '❌'}")
+    typer.echo(f"Logfire Initialized: {'✅' if status['initialized'] else '❌'}")
+    typer.echo(f"Logfire Enabled: {'✅' if status['enabled'] else '❌'}")
+    
+    typer.echo("\n📊 Configuration")
+    typer.echo("=" * 30)
+    typer.echo(f"Enable Logfire: {settings.enable_logfire}")
+    typer.echo(f"Logfire Token: {'Set' if settings.logfire_token else 'Not set (using local mode)'}")
+    typer.echo(f"Project Name: {settings.logfire_project_name}")
+    typer.echo(f"Prompt Logging: {settings.logfire_log_prompts}")
+    typer.echo(f"Prompt Style: {settings.prompt_style}")
+    
+    if status['enabled']:
+        typer.echo("\n📈 Features Active")
+        typer.echo("=" * 30)
+        typer.echo("• LLM interaction logging")
+        typer.echo("• Document processing metrics")
+        typer.echo("• Embedding creation tracking")
+        typer.echo("• Query performance monitoring")
+        typer.echo("• Error tracking and debugging")
+        
+        if not settings.logfire_token:
+            typer.echo("\n💡 Tip: Set LOGFIRE_TOKEN in .env to send logs to Logfire cloud dashboard")
+        else:
+            typer.echo("\n🌐 Logs are being sent to Logfire cloud dashboard")
+    else:
+        typer.echo("\n⚠️ Observability is disabled. Set ENABLE_LOGFIRE=true in .env to enable.")
+
+
+@app.command()
 def exit():
     """Exit the application."""
     typer.echo("Exiting document-chat application.")

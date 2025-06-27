@@ -53,6 +53,24 @@ from docx import Document as DocxDocument
 from docx.table import Table
 from docx.text.paragraph import Paragraph
 
+try:
+    from src.observability import logfire_manager, log_operation
+    OBSERVABILITY_AVAILABLE = True
+except ImportError:
+    OBSERVABILITY_AVAILABLE = False
+    # Create no-op decorators if observability is not available
+    def log_operation(name):
+        def decorator(func):
+            return func
+        return decorator
+    class MockLogfireManager:
+        def span(self, *args, **kwargs):
+            from contextlib import nullcontext
+            return nullcontext()
+        def log_document_processing(self, *args, **kwargs):
+            pass
+    logfire_manager = MockLogfireManager()
+
 
 class EnhancedDocumentProcessor:
     """Enhanced document processor with advanced extraction capabilities."""
@@ -89,16 +107,45 @@ class EnhancedDocumentProcessor:
             ]
         )
     
+    @log_operation("process_document")
     def process_document(self, file_path: Path) -> List[Document]:
         """Process a document and return list of Document objects with metadata."""
-        if file_path.suffix.lower() == ".pdf":
-            return self.process_pdf(file_path)
-        elif file_path.suffix.lower() in [".docx", ".doc"]:
-            return self.process_docx(file_path)
-        elif file_path.suffix.lower() in [".txt", ".md"]:
-            return self.process_text(file_path)
-        else:
-            raise ValueError(f"Unsupported file type: {file_path.suffix}")
+        import time
+        start_time = time.time()
+        
+        with logfire_manager.span("document_processing") as span:
+            span.set_attribute("file_path", str(file_path))
+            span.set_attribute("file_type", file_path.suffix.lower())
+            span.set_attribute("file_size_bytes", file_path.stat().st_size if file_path.exists() else 0)
+            
+            try:
+                if file_path.suffix.lower() == ".pdf":
+                    documents = self.process_pdf(file_path)
+                elif file_path.suffix.lower() in [".docx", ".doc"]:
+                    documents = self.process_docx(file_path)
+                elif file_path.suffix.lower() in [".txt", ".md"]:
+                    documents = self.process_text(file_path)
+                else:
+                    raise ValueError(f"Unsupported file type: {file_path.suffix}")
+                
+                processing_time = time.time() - start_time
+                
+                span.set_attribute("chunks_created", len(documents))
+                span.set_attribute("processing_time_seconds", processing_time)
+                
+                # Log processing metrics
+                logfire_manager.log_document_processing(
+                    file_path=str(file_path),
+                    chunk_count=len(documents),
+                    processing_time=processing_time
+                )
+                
+                return documents
+                
+            except Exception as e:
+                span.set_attribute("error", str(e))
+                span.set_attribute("error_type", type(e).__name__)
+                raise
     
     def process_pdf(self, path: Path) -> List[Document]:
         """Process PDF with multiple extraction methods based on availability."""
