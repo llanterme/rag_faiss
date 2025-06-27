@@ -5,6 +5,7 @@ A Python application that enables users to ingest documents (PDF, DOCX, TXT) and
 ## Features
 
 - **Document Ingestion**: Support for PDF, DOCX, and TXT formats with intelligent chunking
+- **Enhanced Processing**: Advanced extraction with table preservation, metadata extraction, and OCR support
 - **Embeddings & Vector Store**: Using OpenAI or Ollama embeddings and FAISS for local storage
 - **LLM Flexibility**: Support for both OpenAI (cloud) and Ollama (local) as LLM backends
 - **LangGraph RAG Chain**: Modern graph-based approach with persistent conversation memory
@@ -97,7 +98,7 @@ The web interface allows you to:
    ```
 
 5. Exit the application:
-   ```
+   ```dirty
    poetry run python -m src.cli exit
    ```
 

@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.config import LLMProvider, EmbeddingProvider, settings
 from src.embeddings import create_faiss_index, load_index, save_index
 from src.ingestion import load_docx, load_pdf, load_txt
+from src.enhanced_ingestion import EnhancedDocumentProcessor
 from src.langgraph_chain import build_retrieval_chain
 
 # Create enums for CLI provider options that match our internal enums
@@ -69,61 +70,110 @@ def ingest(
         typer.echo(f"Error: {directory} is not a valid directory")
         return
 
-    documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
-
-    if dir_path.is_file():
-        # Process single file
-        if dir_path.suffix.lower() == ".txt":
-            typer.echo(f"Ingesting TXT file: {dir_path}")
-            documents.append((str(dir_path), load_txt(dir_path)))
-        elif dir_path.suffix.lower() == ".pdf":
-            typer.echo(f"Ingesting PDF file: {dir_path}")
-            documents.append((str(dir_path), load_pdf(dir_path)))
-        elif dir_path.suffix.lower() in [".docx", ".doc"]:
-            typer.echo(f"Ingesting DOCX file: {dir_path}")
-            documents.append((str(dir_path), load_docx(dir_path)))
-        else:
-            typer.echo(f"Unsupported file type: {dir_path.suffix}")
-            return
-    elif dir_path.is_dir():
-        # Process all supported files in directory
-        typer.echo(f"Ingesting files from directory: {dir_path}")
-        for file_path in dir_path.glob("**/*"):
-            if file_path.is_file():
-                if file_path.suffix.lower() == ".txt":
-                    typer.echo(f"Ingesting TXT file: {file_path}")
-                    documents.append((str(file_path), load_txt(file_path)))
-                elif file_path.suffix.lower() == ".pdf":
-                    typer.echo(f"Ingesting PDF file: {file_path}")
-                    documents.append((str(file_path), load_pdf(file_path)))
-                elif file_path.suffix.lower() in [".docx", ".doc"]:
-                    typer.echo(f"Ingesting DOCX file: {file_path}")
-                    documents.append((str(file_path), load_docx(file_path)))
-
-    if not documents:
-        typer.echo("No supported documents found to ingest.")
-        return
-
-    # Create text splitter for chunking
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-        length_function=len,
-    )
-
-    # Split documents into chunks
-    typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
-    chunks = []
-    metadatas = []
-    for doc_path, content in documents:
-        doc_chunks = text_splitter.split_text(content)
-        doc_name = Path(doc_path).name
-        typer.echo(f"  - {doc_name}: {len(doc_chunks)} chunks")
+    # Use enhanced processing if enabled
+    if settings.use_enhanced_processing:
+        typer.echo("Using enhanced document processing...")
+        processor = EnhancedDocumentProcessor(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            extract_tables=settings.extract_tables,
+            extract_images=settings.extract_images,
+            preserve_formatting=settings.preserve_formatting,
+            use_ocr=settings.use_ocr,
+        )
         
-        # Add document source to each chunk's metadata
-        for chunk in doc_chunks:
-            chunks.append(chunk)
-            metadatas.append({"source": doc_name, "source_path": doc_path})
+        # Collect all files to process
+        files_to_process = []
+        if dir_path.is_file():
+            files_to_process.append(dir_path)
+        else:
+            # Process all supported files in directory
+            typer.echo(f"Scanning directory: {dir_path}")
+            for file_path in dir_path.glob("**/*"):
+                if file_path.is_file() and file_path.suffix.lower() in [".txt", ".md", ".pdf", ".docx", ".doc"]:
+                    files_to_process.append(file_path)
+        
+        if not files_to_process:
+            typer.echo("No supported documents found to ingest.")
+            return
+        
+        # Process documents
+        all_docs = []
+        for file_path in files_to_process:
+            typer.echo(f"Processing {file_path.name}...")
+            try:
+                docs = processor.process_document(file_path)
+                typer.echo(f"  - Generated {len(docs)} chunks")
+                all_docs.extend(docs)
+            except Exception as e:
+                typer.echo(f"  - Error processing {file_path.name}: {str(e)}")
+                continue
+        
+        if not all_docs:
+            typer.echo("No documents were successfully processed.")
+            return
+        
+        # Extract chunks and metadata
+        chunks = [doc.page_content for doc in all_docs]
+        metadatas = [doc.metadata for doc in all_docs]
+    
+    else:
+        # Fallback to original processing
+        documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
+
+        if dir_path.is_file():
+            # Process single file
+            if dir_path.suffix.lower() == ".txt":
+                typer.echo(f"Ingesting TXT file: {dir_path}")
+                documents.append((str(dir_path), load_txt(dir_path)))
+            elif dir_path.suffix.lower() == ".pdf":
+                typer.echo(f"Ingesting PDF file: {dir_path}")
+                documents.append((str(dir_path), load_pdf(dir_path)))
+            elif dir_path.suffix.lower() in [".docx", ".doc"]:
+                typer.echo(f"Ingesting DOCX file: {dir_path}")
+                documents.append((str(dir_path), load_docx(dir_path)))
+            else:
+                typer.echo(f"Unsupported file type: {dir_path.suffix}")
+                return
+        elif dir_path.is_dir():
+            # Process all supported files in directory
+            typer.echo(f"Ingesting files from directory: {dir_path}")
+            for file_path in dir_path.glob("**/*"):
+                if file_path.is_file():
+                    if file_path.suffix.lower() == ".txt":
+                        typer.echo(f"Ingesting TXT file: {file_path}")
+                        documents.append((str(file_path), load_txt(file_path)))
+                    elif file_path.suffix.lower() == ".pdf":
+                        typer.echo(f"Ingesting PDF file: {file_path}")
+                        documents.append((str(file_path), load_pdf(file_path)))
+                    elif file_path.suffix.lower() in [".docx", ".doc"]:
+                        typer.echo(f"Ingesting DOCX file: {file_path}")
+                        documents.append((str(file_path), load_docx(file_path)))
+
+        if not documents:
+            typer.echo("No supported documents found to ingest.")
+            return
+
+        # Create text splitter for chunking
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            length_function=len,
+        )
+
+        # Split documents into chunks
+        typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
+        chunks = []
+        metadatas = []
+        for doc_path, content in documents:
+            doc_chunks = text_splitter.split_text(content)
+            doc_name = Path(doc_path).name
+            typer.echo(f"  - {doc_name}: {len(doc_chunks)} chunks")
+            
+            # Add document source to each chunk's metadata
+            for chunk in doc_chunks:
+                chunks.append(chunk)
+                metadatas.append({"source": doc_name, "source_path": doc_path})
 
     typer.echo(f"Creating vector embeddings for {len(chunks)} text chunks...")
     index = create_faiss_index(chunks, metadatas=metadatas)

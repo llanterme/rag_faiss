@@ -76,6 +76,25 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(
         default=200, description="Overlap between document chunks"
     )
+    # Enhanced document processing settings
+    use_enhanced_processing: bool = Field(
+        default=True, description="Use enhanced document processing with advanced extraction"
+    )
+    extract_tables: bool = Field(
+        default=True, description="Extract tables from documents"
+    )
+    extract_images: bool = Field(
+        default=False, description="Extract images from documents (requires additional processing)"
+    )
+    preserve_formatting: bool = Field(
+        default=True, description="Preserve document formatting and structure"
+    )
+    use_ocr: bool = Field(
+        default=False, description="Use OCR for scanned documents"
+    )
+    disable_unstructured_ui: bool = Field(
+        default=True, description="Disable unstructured library in UI to avoid torch conflicts"
+    )
     faiss_index_filename: str = Field(
         default="faiss_index", description="Filename for the FAISS index"
     )
