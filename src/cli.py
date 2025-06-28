@@ -19,6 +19,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.config import LLMProvider, EmbeddingProvider, settings
 from src.embeddings import create_faiss_index, load_index, save_index
 from src.ingestion import load_docx, load_pdf, load_txt
+from src.enhanced_ingestion import EnhancedDocumentProcessor
 from src.langgraph_chain import build_retrieval_chain
 
 # Create enums for CLI provider options that match our internal enums
@@ -69,61 +70,110 @@ def ingest(
         typer.echo(f"Error: {directory} is not a valid directory")
         return
 
-    documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
-
-    if dir_path.is_file():
-        # Process single file
-        if dir_path.suffix.lower() == ".txt":
-            typer.echo(f"Ingesting TXT file: {dir_path}")
-            documents.append((str(dir_path), load_txt(dir_path)))
-        elif dir_path.suffix.lower() == ".pdf":
-            typer.echo(f"Ingesting PDF file: {dir_path}")
-            documents.append((str(dir_path), load_pdf(dir_path)))
-        elif dir_path.suffix.lower() in [".docx", ".doc"]:
-            typer.echo(f"Ingesting DOCX file: {dir_path}")
-            documents.append((str(dir_path), load_docx(dir_path)))
-        else:
-            typer.echo(f"Unsupported file type: {dir_path.suffix}")
-            return
-    elif dir_path.is_dir():
-        # Process all supported files in directory
-        typer.echo(f"Ingesting files from directory: {dir_path}")
-        for file_path in dir_path.glob("**/*"):
-            if file_path.is_file():
-                if file_path.suffix.lower() == ".txt":
-                    typer.echo(f"Ingesting TXT file: {file_path}")
-                    documents.append((str(file_path), load_txt(file_path)))
-                elif file_path.suffix.lower() == ".pdf":
-                    typer.echo(f"Ingesting PDF file: {file_path}")
-                    documents.append((str(file_path), load_pdf(file_path)))
-                elif file_path.suffix.lower() in [".docx", ".doc"]:
-                    typer.echo(f"Ingesting DOCX file: {file_path}")
-                    documents.append((str(file_path), load_docx(file_path)))
-
-    if not documents:
-        typer.echo("No supported documents found to ingest.")
-        return
-
-    # Create text splitter for chunking
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-        length_function=len,
-    )
-
-    # Split documents into chunks
-    typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
-    chunks = []
-    metadatas = []
-    for doc_path, content in documents:
-        doc_chunks = text_splitter.split_text(content)
-        doc_name = Path(doc_path).name
-        typer.echo(f"  - {doc_name}: {len(doc_chunks)} chunks")
+    # Use enhanced processing if enabled
+    if settings.use_enhanced_processing:
+        typer.echo("Using enhanced document processing...")
+        processor = EnhancedDocumentProcessor(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            extract_tables=settings.extract_tables,
+            extract_images=settings.extract_images,
+            preserve_formatting=settings.preserve_formatting,
+            use_ocr=settings.use_ocr,
+        )
         
-        # Add document source to each chunk's metadata
-        for chunk in doc_chunks:
-            chunks.append(chunk)
-            metadatas.append({"source": doc_name, "source_path": doc_path})
+        # Collect all files to process
+        files_to_process = []
+        if dir_path.is_file():
+            files_to_process.append(dir_path)
+        else:
+            # Process all supported files in directory
+            typer.echo(f"Scanning directory: {dir_path}")
+            for file_path in dir_path.glob("**/*"):
+                if file_path.is_file() and file_path.suffix.lower() in [".txt", ".md", ".pdf", ".docx", ".doc"]:
+                    files_to_process.append(file_path)
+        
+        if not files_to_process:
+            typer.echo("No supported documents found to ingest.")
+            return
+        
+        # Process documents
+        all_docs = []
+        for file_path in files_to_process:
+            typer.echo(f"Processing {file_path.name}...")
+            try:
+                docs = processor.process_document(file_path)
+                typer.echo(f"  - Generated {len(docs)} chunks")
+                all_docs.extend(docs)
+            except Exception as e:
+                typer.echo(f"  - Error processing {file_path.name}: {str(e)}")
+                continue
+        
+        if not all_docs:
+            typer.echo("No documents were successfully processed.")
+            return
+        
+        # Extract chunks and metadata
+        chunks = [doc.page_content for doc in all_docs]
+        metadatas = [doc.metadata for doc in all_docs]
+    
+    else:
+        # Fallback to original processing
+        documents: List[Tuple[str, str]] = []  # List of (doc_path, content)
+
+        if dir_path.is_file():
+            # Process single file
+            if dir_path.suffix.lower() == ".txt":
+                typer.echo(f"Ingesting TXT file: {dir_path}")
+                documents.append((str(dir_path), load_txt(dir_path)))
+            elif dir_path.suffix.lower() == ".pdf":
+                typer.echo(f"Ingesting PDF file: {dir_path}")
+                documents.append((str(dir_path), load_pdf(dir_path)))
+            elif dir_path.suffix.lower() in [".docx", ".doc"]:
+                typer.echo(f"Ingesting DOCX file: {dir_path}")
+                documents.append((str(dir_path), load_docx(dir_path)))
+            else:
+                typer.echo(f"Unsupported file type: {dir_path.suffix}")
+                return
+        elif dir_path.is_dir():
+            # Process all supported files in directory
+            typer.echo(f"Ingesting files from directory: {dir_path}")
+            for file_path in dir_path.glob("**/*"):
+                if file_path.is_file():
+                    if file_path.suffix.lower() == ".txt":
+                        typer.echo(f"Ingesting TXT file: {file_path}")
+                        documents.append((str(file_path), load_txt(file_path)))
+                    elif file_path.suffix.lower() == ".pdf":
+                        typer.echo(f"Ingesting PDF file: {file_path}")
+                        documents.append((str(file_path), load_pdf(file_path)))
+                    elif file_path.suffix.lower() in [".docx", ".doc"]:
+                        typer.echo(f"Ingesting DOCX file: {file_path}")
+                        documents.append((str(file_path), load_docx(file_path)))
+
+        if not documents:
+            typer.echo("No supported documents found to ingest.")
+            return
+
+        # Create text splitter for chunking
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            length_function=len,
+        )
+
+        # Split documents into chunks
+        typer.echo(f"Splitting {len(documents)} document(s) into chunks...")
+        chunks = []
+        metadatas = []
+        for doc_path, content in documents:
+            doc_chunks = text_splitter.split_text(content)
+            doc_name = Path(doc_path).name
+            typer.echo(f"  - {doc_name}: {len(doc_chunks)} chunks")
+            
+            # Add document source to each chunk's metadata
+            for chunk in doc_chunks:
+                chunks.append(chunk)
+                metadatas.append({"source": doc_name, "source_path": doc_path})
 
     typer.echo(f"Creating vector embeddings for {len(chunks)} text chunks...")
     index = create_faiss_index(chunks, metadatas=metadatas)
@@ -310,6 +360,95 @@ def provider():
     typer.echo("  EMBEDDING_PROVIDER=openai|ollama")
     typer.echo("  EMBEDDING_MODEL=model_name")
     typer.echo("\nNote: Changing the embedding configuration requires re-ingesting documents.")
+
+
+@app.command()
+def test_prompts(
+    style: str = typer.Option(
+        "default", 
+        help="Prompt style to test: default, detailed, concise, academic, technical"
+    )
+):
+    """Test different prompt styles with a sample query."""
+    from src.prompts import create_rag_prompt
+    
+    # Sample context and question for demonstration
+    sample_context = """
+Company Policy Manual - Section 3.2
+Employees are entitled to 15 days of paid vacation per year. Vacation requests must be submitted at least 2 weeks in advance through the HR portal. Emergency leave may be granted with manager approval.
+
+Benefits Guide - Chapter 4  
+Health insurance covers employee and immediate family members. The company matches 401k contributions up to 5% of salary. Professional development budget is $2000 per year per employee.
+"""
+    
+    sample_question = "What are the vacation and benefits policies?"
+    
+    # Test the prompt style
+    valid_styles = ["default", "detailed", "concise", "academic", "technical"]
+    if style not in valid_styles:
+        typer.echo(f"❌ Invalid style: {style}")
+        typer.echo(f"Valid options: {', '.join(valid_styles)}")
+        return
+    
+    typer.echo(f"🎯 Testing '{style}' prompt style")
+    typer.echo("=" * 60)
+    
+    enhanced_prompt = create_rag_prompt(
+        context=sample_context,
+        question=sample_question,
+        style=style
+    )
+    
+    typer.echo("📝 Generated Prompt:")
+    typer.echo("-" * 30)
+    typer.echo(enhanced_prompt)
+    
+    typer.echo("\n" + "=" * 60)
+    typer.echo(f"💡 To use this style permanently:")
+    typer.echo(f"   Add 'PROMPT_STYLE={style}' to your .env file")
+    
+    typer.echo(f"\n🧪 To test with actual documents:")
+    typer.echo(f"   1. Ingest some documents")
+    typer.echo(f"   2. Set PROMPT_STYLE={style} in .env")
+    typer.echo(f"   3. Run: poetry run python -m src.cli chat")
+
+
+@app.command()
+def observability():
+    """Show observability status and configuration."""
+    from src.observability import get_logfire_status
+    
+    status = get_logfire_status()
+    
+    typer.echo("🔍 Observability Status")
+    typer.echo("=" * 30)
+    typer.echo(f"Logfire Available: {'✅' if status['available'] else '❌'}")
+    typer.echo(f"Logfire Initialized: {'✅' if status['initialized'] else '❌'}")
+    typer.echo(f"Logfire Enabled: {'✅' if status['enabled'] else '❌'}")
+    
+    typer.echo("\n📊 Configuration")
+    typer.echo("=" * 30)
+    typer.echo(f"Enable Logfire: {settings.enable_logfire}")
+    typer.echo(f"Logfire Token: {'Set' if settings.logfire_token else 'Not set (using local mode)'}")
+    typer.echo(f"Project Name: {settings.logfire_project_name}")
+    typer.echo(f"Prompt Logging: {settings.logfire_log_prompts}")
+    typer.echo(f"Prompt Style: {settings.prompt_style}")
+    
+    if status['enabled']:
+        typer.echo("\n📈 Features Active")
+        typer.echo("=" * 30)
+        typer.echo("• LLM interaction logging")
+        typer.echo("• Document processing metrics")
+        typer.echo("• Embedding creation tracking")
+        typer.echo("• Query performance monitoring")
+        typer.echo("• Error tracking and debugging")
+        
+        if not settings.logfire_token:
+            typer.echo("\n💡 Tip: Set LOGFIRE_TOKEN in .env to send logs to Logfire cloud dashboard")
+        else:
+            typer.echo("\n🌐 Logs are being sent to Logfire cloud dashboard")
+    else:
+        typer.echo("\n⚠️ Observability is disabled. Set ENABLE_LOGFIRE=true in .env to enable.")
 
 
 @app.command()

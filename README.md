@@ -5,6 +5,8 @@ A Python application that enables users to ingest documents (PDF, DOCX, TXT) and
 ## Features
 
 - **Document Ingestion**: Support for PDF, DOCX, and TXT formats with intelligent chunking
+- **Enhanced Processing**: Advanced extraction with table preservation, metadata extraction, and OCR support
+- **Observability**: Complete LLM interaction monitoring with Pydantic Logfire
 - **Embeddings & Vector Store**: Using OpenAI or Ollama embeddings and FAISS for local storage
 - **LLM Flexibility**: Support for both OpenAI (cloud) and Ollama (local) as LLM backends
 - **LangGraph RAG Chain**: Modern graph-based approach with persistent conversation memory
@@ -97,7 +99,7 @@ The web interface allows you to:
    ```
 
 5. Exit the application:
-   ```
+   ```dirty
    poetry run python -m src.cli exit
    ```
 
@@ -121,6 +123,30 @@ The web interface allows you to:
 - Typer ^0.16.0
 - Streamlit ^1.30.0
 - Cryptography ^45.0.4
+
+## Observability
+
+Monitor your LLM interactions with Pydantic Logfire:
+
+```bash
+# Check observability status
+poetry run python -m src.cli observability
+
+# View logs in console (default)
+poetry run python -m src.cli chat
+
+# Enable cloud dashboard (optional)
+echo "LOGFIRE_TOKEN=your_token" >> .env
+```
+
+**Features:**
+- LLM response times and token usage
+- Document processing metrics  
+- Embedding creation tracking
+- Query performance analysis
+- Error tracking and debugging
+
+See [docs/observability.md](docs/observability.md) for complete setup guide.
 
 ## Documentation
 

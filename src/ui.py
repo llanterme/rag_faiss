@@ -18,6 +18,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from src.config import settings
 from src.embeddings import create_faiss_index, load_index, save_index
 from src.ingestion import load_txt, load_pdf, load_docx
+from src.enhanced_ingestion import EnhancedDocumentProcessor
 from src.langgraph_chain import build_retrieval_chain
 
 
@@ -241,25 +242,53 @@ def ingest_documents(files=None, folder_path=None):
         st.error("No valid documents to process")
         return
     
-    # Create text splitter for chunking
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=settings.chunk_size,
-        chunk_overlap=settings.chunk_overlap,
-        length_function=len,
-    )
-    
-    # Split documents into chunks with metadata
-    progress_text.write(f"Splitting {len(documents)} document(s) into chunks...")
-    chunks = []
-    metadatas = []
-    
-    for doc_name, content in documents:
-        doc_chunks = text_splitter.split_text(content)
+    # Use enhanced processing if enabled
+    if settings.use_enhanced_processing:
+        progress_text.write("Using enhanced document processing...")
+        processor = EnhancedDocumentProcessor(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            extract_tables=settings.extract_tables,
+            extract_images=settings.extract_images,
+            preserve_formatting=settings.preserve_formatting,
+            use_ocr=settings.use_ocr,
+        )
         
-        # Add document source to each chunk's metadata
-        for chunk in doc_chunks:
-            chunks.append(chunk)
-            metadatas.append({"source": doc_name, "source_path": doc_name})
+        # Process documents
+        all_docs = []
+        for doc_name, content in documents:
+            progress_text.write(f"Processing {doc_name}...")
+            # Create a temporary Document for processing
+            from langchain_core.documents import Document
+            temp_doc = Document(page_content=content, metadata={"source": doc_name})
+            
+            # Split using the processor's text splitter
+            split_docs = processor._split_documents([temp_doc])
+            all_docs.extend(split_docs)
+        
+        # Extract chunks and metadata
+        chunks = [doc.page_content for doc in all_docs]
+        metadatas = [doc.metadata for doc in all_docs]
+    else:
+        # Create text splitter for chunking
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=settings.chunk_size,
+            chunk_overlap=settings.chunk_overlap,
+            length_function=len,
+        )
+        
+        # Split documents into chunks with metadata
+        progress_text.write(f"Splitting {len(documents)} document(s) into chunks...")
+        chunks = []
+        metadatas = []
+        
+        for doc_name, content in documents:
+            doc_chunks = text_splitter.split_text(content)
+            
+            # Add document source to each chunk's metadata
+            for chunk in doc_chunks:
+                chunks.append(chunk)
+                metadatas.append({"source": doc_name, "source_path": doc_name})
     
     # Create vector embeddings
     progress_text.write(f"Creating vector embeddings for {len(chunks)} text chunks...")

@@ -23,12 +23,21 @@ cryptography = "^45.0.4"
 streamlit = "^1.30.0"
 requests = "^2.31.0"
 langchain-openai = "^0.3.26"
+logfire = "^3.21.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.3.0"
 flake8 = "^7.0.0"
 mypy = "^1.9.0"
 pytest = "^8.0.0"
+
+[tool.poetry.group.enhanced]
+optional = true
+
+[tool.poetry.group.enhanced.dependencies]
+pdfplumber = "^0.11.0"
+pymupdf = "^1.24.0"
+unstructured = {extras = ["pdf", "docx"], version = "^0.15.0", python = "<3.13"}
 
 [tool.poetry.scripts]
 ui = "src.streamlit_launcher:main"

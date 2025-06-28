@@ -76,6 +76,42 @@ class Settings(BaseSettings):
     chunk_overlap: int = Field(
         default=200, description="Overlap between document chunks"
     )
+    # Enhanced document processing settings
+    use_enhanced_processing: bool = Field(
+        default=True, description="Use enhanced document processing with advanced extraction"
+    )
+    extract_tables: bool = Field(
+        default=True, description="Extract tables from documents"
+    )
+    extract_images: bool = Field(
+        default=False, description="Extract images from documents (requires additional processing)"
+    )
+    preserve_formatting: bool = Field(
+        default=True, description="Preserve document formatting and structure"
+    )
+    use_ocr: bool = Field(
+        default=False, description="Use OCR for scanned documents"
+    )
+    disable_unstructured_ui: bool = Field(
+        default=True, description="Disable unstructured library in UI to avoid torch conflicts"
+    )
+    # Logfire observability settings
+    enable_logfire: bool = Field(
+        default=True, description="Enable Logfire observability for LLM interactions"
+    )
+    logfire_token: Optional[str] = Field(
+        default=None, description="Logfire API token for remote logging"
+    )
+    logfire_project_name: str = Field(
+        default="document-chat", description="Logfire project name"
+    )
+    logfire_log_prompts: bool = Field(
+        default=True, description="Log full prompts sent to LLM"
+    )
+    # Prompt configuration
+    prompt_style: str = Field(
+        default="default", description="Prompt style: default, detailed, concise, academic, technical"
+    )
     faiss_index_filename: str = Field(
         default="faiss_index", description="Filename for the FAISS index"
     )
@@ -141,3 +177,17 @@ class Settings(BaseSettings):
 
 # Create a singleton instance of settings
 settings = Settings()
+
+# Ensure data directories exist
+settings.vector_store_path.mkdir(parents=True, exist_ok=True)
+settings.graph_state_path.mkdir(parents=True, exist_ok=True)
+
+# Initialize Logfire observability
+try:
+    from src.observability import setup_logfire_from_config
+    setup_logfire_from_config()
+except ImportError:
+    pass  # Logfire not available
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).warning(f"Failed to initialize Logfire: {e}")
