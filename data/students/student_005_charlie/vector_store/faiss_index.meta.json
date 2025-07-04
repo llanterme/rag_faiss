@@ -1,0 +1,7 @@
+{
+  "embedding_provider": "openai",
+  "embedding_model": "text-embedding-ada-002",
+  "embedding_dimension": 1536,
+  "created_at": "2025-07-04T06:17:21.434370",
+  "student_id": "student_005_charlie"
+}

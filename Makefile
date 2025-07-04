@@ -1,7 +1,7 @@
 # Document Chat Makefile
 # Provides convenient commands for common operations
 
-.PHONY: help install install-dev install-enhanced ui cli ingest chat history provider observability clean test lint format typecheck setup-ollama
+.PHONY: help install install-dev install-enhanced ui cli ingest chat history provider observability clean test lint format typecheck setup-ollama student-create student-list student-select student-current student-delete
 
 # Default target - show help
 help:
@@ -15,13 +15,20 @@ help:
 	@echo "  make setup-ollama     - Pull default Ollama model (llama3.2:latest)"
 	@echo ""
 	@echo "Running the Application:"
-	@echo "  make ui              - Launch Streamlit web interface"
+	@echo "  make ui              - Launch Educational Insight Platform (teacher-centric UI)"
 	@echo "  make cli             - Run CLI in interactive mode"
 	@echo "  make chat            - Start a chat session (CLI)"
 	@echo ""
+	@echo "Student Management:"
+	@echo "  make student-create name=\"Student Name\" - Create a new student"
+	@echo "  make student-list           - List all students"
+	@echo "  make student-select id=ID   - Select a student for operations"
+	@echo "  make student-current        - Show currently selected student"
+	@echo "  make student-delete id=ID   - Delete a student"
+	@echo ""
 	@echo "Document Management:"
-	@echo "  make ingest path=/path/to/docs - Ingest documents from a directory"
-	@echo "  make history         - View conversation history"
+	@echo "  make ingest path=/path/to/docs - Ingest documents for selected student"
+	@echo "  make history         - View conversation history for selected student"
 	@echo "  make provider        - Show current provider configuration"
 	@echo "  make observability   - Check observability status"
 	@echo ""
@@ -32,10 +39,12 @@ help:
 	@echo "  make typecheck       - Run type checking with mypy"
 	@echo ""
 	@echo "Maintenance:"
-	@echo "  make clean           - Clean up temporary files and caches"
-	@echo "  make clean-index     - Remove vector store index"
-	@echo "  make clean-state     - Remove conversation state"
-	@echo "  make clean-all       - Remove all generated data"
+	@echo "  make clean                  - Clean up temporary files and caches"
+	@echo "  make clean-index            - Remove vector store index"
+	@echo "  make clean-state            - Remove conversation state"
+	@echo "  make clean-students         - Remove all student data"
+	@echo "  make clean-student-selection - Clear current student selection"
+	@echo "  make clean-all              - Remove all generated data"
 
 # Install base dependencies
 install:
@@ -94,6 +103,45 @@ provider:
 observability:
 	poetry run python -m src.cli observability
 
+# Student management commands
+student-create:
+ifndef name
+	@echo "Error: Please specify a student name"
+	@echo "Usage: make student-create name=\"Student Name\""
+	@exit 1
+endif
+	poetry run python -m src.cli student create "$(name)"
+
+student-list:
+	poetry run python -m src.cli student list
+
+student-select:
+ifndef id
+	@echo "Error: Please specify a student ID"
+	@echo "Usage: make student-select id=student_abc123_john_doe"
+	@exit 1
+endif
+	poetry run python -m src.cli student select "$(id)"
+
+student-current:
+	poetry run python -m src.cli student current
+
+student-delete:
+ifndef id
+	@echo "Error: Please specify a student ID"
+	@echo "Usage: make student-delete id=student_abc123_john_doe"
+	@exit 1
+endif
+	poetry run python -m src.cli student delete "$(id)"
+
+student-delete-force:
+ifndef id
+	@echo "Error: Please specify a student ID"
+	@echo "Usage: make student-delete-force id=student_abc123_john_doe"
+	@exit 1
+endif
+	poetry run python -m src.cli student delete "$(id)" --force
+
 # Run tests
 test:
 	poetry run pytest
@@ -149,14 +197,25 @@ clean-state:
 	rm -rf data/graph_state/* 2>/dev/null || true
 	@echo "Conversation state cleaned"
 
+# Clean student data
+clean-students:
+	rm -rf data/students/* 2>/dev/null || true
+	@echo "All student data cleaned"
+
+# Clean current student selection
+clean-student-selection:
+	rm -f data/students/.current_student 2>/dev/null || true
+	@echo "Student selection cleared"
+
 # Clean all generated data
-clean-all: clean clean-index clean-state
+clean-all: clean clean-index clean-state clean-students
 	@echo "All generated data cleaned"
 
 # Create necessary directories
 setup-dirs:
 	mkdir -p data/vector_store
 	mkdir -p data/graph_state
+	mkdir -p data/students
 	mkdir -p data/sample_docs
 	@echo "Directories created"
 
@@ -175,9 +234,13 @@ quickstart: install setup-dirs
 	@echo "   - Install Ollama from https://ollama.com"
 	@echo "   - Run: make setup-ollama"
 	@echo ""
-	@echo "4. Launch the application:"
-	@echo "   - Web UI: make ui"
-	@echo "   - CLI: make chat"
+	@echo "4. Create and select a student:"
+	@echo "   - Create: make student-create name=\"Student Name\""
+	@echo "   - Select: make student-select id=STUDENT_ID"
+	@echo ""
+	@echo "5. Launch the Educational Insight Platform:"
+	@echo "   - Teacher Dashboard: make ui"
+	@echo "   - CLI Interface: make chat"
 	@echo ""
 
 # Development server with auto-reload

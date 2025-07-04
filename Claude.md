@@ -148,3 +148,26 @@ Based on git history, recent improvements include:
 ## Summary
 
 Document Chat represents a well-architected RAG solution that balances functionality, flexibility, and user experience. Its dual-interface approach (Web UI and CLI) caters to different user preferences, while the provider-agnostic design allows for both cloud and local deployment options. The emphasis on observability and proper error handling makes it suitable for production use cases.
+
+
+# Code & Process Standards
+
+## 1. General Principles
+- **Clean Code:**
+  - Follow Robert C. Martin's Clean Code principles.
+  - Write short, descriptive, self-documenting functions (3–5 lines when possible).
+  - Each function/module should have a single responsibility.
+  - Avoid comments; code should be self-explanatory.
+  - Use descriptive names for all functions and variables.
+- **Functional Programming:**
+  - Prefer pure functions and avoid side effects.
+  - Maintain clear abstraction and separation of concerns.
+- **Terminal Commands:**
+  - All terminal commands (install, run, test, lint, build) must be in a Makefile.
+  - Use Makefile commands for all terminal operations.
+- **Always consult the official documentation or perform a web search for the specification of a technology, library, or tool before implementing, debugging, or troubleshooting.**
+  - Check for the latest usage patterns, reserved argument names, and best practices.
+  - When encountering errors or unexpected behavior, search for the error message and review the official docs or reputable sources before attempting fixes.
+  - Reference the documentation in code reviews or PRs when introducing new patterns or libraries.
+- **Optimise for resilience to change**
+  - Chose strategies or methods that cope well with change.

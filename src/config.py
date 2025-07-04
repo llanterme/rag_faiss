@@ -13,12 +13,14 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class LLMProvider(str, Enum):
     """Enum for supported LLM providers."""
+
     OPENAI = "openai"
     OLLAMA = "ollama"
 
 
 class EmbeddingProvider(str, Enum):
     """Enum for supported embedding providers."""
+
     OPENAI = "openai"
     OLLAMA = "ollama"
 
@@ -44,27 +46,24 @@ class Settings(BaseSettings):
     """
 
     llm_provider: LLMProvider = Field(
-        default=LLMProvider.OPENAI,
-        description="LLM provider to use (openai or ollama)"
+        default=LLMProvider.OPENAI, description="LLM provider to use (openai or ollama)"
     )
     llm_model: str = Field(
-        default="gpt-4o",
-        description="Model name to use with the selected provider"
+        default="gpt-4o", description="Model name to use with the selected provider"
     )
     embedding_provider: EmbeddingProvider = Field(
         default=EmbeddingProvider.OPENAI,
-        description="Embedding provider to use (openai or ollama)"
+        description="Embedding provider to use (openai or ollama)",
     )
     embedding_model: str = Field(
         default="text-embedding-ada-002",
-        description="Embedding model name to use with the selected provider"
+        description="Embedding model name to use with the selected provider",
     )
     openai_api_key: str = Field(
         default="", description="OpenAI API key for embeddings and chat completion"
     )
     ollama_base_url: str = Field(
-        default="http://localhost:11434",
-        description="Base URL for Ollama API"
+        default="http://localhost:11434", description="Base URL for Ollama API"
     )
     vector_store_path: Path = Field(
         default=Path("./data/vector_store"),
@@ -78,22 +77,23 @@ class Settings(BaseSettings):
     )
     # Enhanced document processing settings
     use_enhanced_processing: bool = Field(
-        default=True, description="Use enhanced document processing with advanced extraction"
+        default=True,
+        description="Use enhanced document processing with advanced extraction",
     )
     extract_tables: bool = Field(
         default=True, description="Extract tables from documents"
     )
     extract_images: bool = Field(
-        default=False, description="Extract images from documents (requires additional processing)"
+        default=False,
+        description="Extract images from documents (requires additional processing)",
     )
     preserve_formatting: bool = Field(
         default=True, description="Preserve document formatting and structure"
     )
-    use_ocr: bool = Field(
-        default=False, description="Use OCR for scanned documents"
-    )
+    use_ocr: bool = Field(default=False, description="Use OCR for scanned documents")
     disable_unstructured_ui: bool = Field(
-        default=True, description="Disable unstructured library in UI to avoid torch conflicts"
+        default=True,
+        description="Disable unstructured library in UI to avoid torch conflicts",
     )
     # Logfire observability settings
     enable_logfire: bool = Field(
@@ -110,20 +110,22 @@ class Settings(BaseSettings):
     )
     # Prompt configuration
     prompt_style: str = Field(
-        default="default", description="Prompt style: default, detailed, concise, academic, technical"
+        default="default",
+        description="Prompt style: default, detailed, concise, academic, technical",
     )
     faiss_index_filename: str = Field(
         default="faiss_index", description="Filename for the FAISS index"
     )
     faiss_metadata_filename: str = Field(
-        default="faiss_index.meta.json", description="Filename for the FAISS index metadata"
+        default="faiss_index.meta.json",
+        description="Filename for the FAISS index metadata",
     )
     temperature: float = Field(
         default=0.0, description="Temperature for the OpenAI model"
     )
     graph_state_path: Path = Field(
         default=Path("./data/graph_state"),
-        description="Path to store persistent graph state data"
+        description="Path to store persistent graph state data",
     )
     enable_persistence: bool = Field(
         default=True, description="Whether to enable graph state persistence"
@@ -132,33 +134,41 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", extra="ignore"
     )
-    
+
     def __init__(self, **data):
         super().__init__(**data)
         # Make sure paths are absolute by resolving them relative to the project root
         self._fix_paths()
-    
+
     def _fix_paths(self) -> None:
         """Ensure all paths are absolute regardless of how the app is executed."""
         # Determine the project root directory by locating the pyproject.toml
         # This works whether we're running from the project root or any subdirectory
         current_dir = Path().absolute()
         project_root = self._find_project_root(current_dir)
-        
+
         # Resolve relative paths to absolute paths
         if not self.vector_store_path.is_absolute():
             # If the path starts with ./ or ../, resolve from project root
-            if str(self.vector_store_path).startswith("./") or str(self.vector_store_path).startswith("../"):
-                self.vector_store_path = project_root / self.vector_store_path.relative_to(Path("./"))
+            if str(self.vector_store_path).startswith("./") or str(
+                self.vector_store_path
+            ).startswith("../"):
+                self.vector_store_path = (
+                    project_root / self.vector_store_path.relative_to(Path("./"))
+                )
             else:
                 self.vector_store_path = project_root / self.vector_store_path
-            
+
         if not self.graph_state_path.is_absolute():
-            if str(self.graph_state_path).startswith("./") or str(self.graph_state_path).startswith("../"):
-                self.graph_state_path = project_root / self.graph_state_path.relative_to(Path("./"))
+            if str(self.graph_state_path).startswith("./") or str(
+                self.graph_state_path
+            ).startswith("../"):
+                self.graph_state_path = (
+                    project_root / self.graph_state_path.relative_to(Path("./"))
+                )
             else:
                 self.graph_state_path = project_root / self.graph_state_path
-    
+
     def _find_project_root(self, start_dir: Path) -> Path:
         """Find the project root by looking for pyproject.toml"""
         current = start_dir
@@ -170,7 +180,7 @@ class Settings(BaseSettings):
             if parent == current:  # Reached filesystem root
                 break
             current = parent
-        
+
         # Fallback to the current directory if project root not found
         return start_dir
 
@@ -185,9 +195,11 @@ settings.graph_state_path.mkdir(parents=True, exist_ok=True)
 # Initialize Logfire observability
 try:
     from src.observability import setup_logfire_from_config
+
     setup_logfire_from_config()
 except ImportError:
     pass  # Logfire not available
 except Exception as e:
     import logging
+
     logging.getLogger(__name__).warning(f"Failed to initialize Logfire: {e}")
