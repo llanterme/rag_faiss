@@ -110,8 +110,8 @@ class Settings(BaseSettings):
     )
     # Prompt configuration
     prompt_style: str = Field(
-        default="default",
-        description="Prompt style: default, detailed, concise, academic, technical",
+        default="educational",
+        description="Prompt style: default, detailed, concise, academic, technical, educational",
     )
     faiss_index_filename: str = Field(
         default="faiss_index", description="Filename for the FAISS index"

@@ -454,7 +454,7 @@ def provider():
 def test_prompts(
     style: str = typer.Option(
         "default",
-        help="Prompt style to test: default, detailed, concise, academic, technical",
+        help="Prompt style to test: default, detailed, concise, academic, technical, educational",
     )
 ):
     """Test different prompt styles with a sample query."""
@@ -472,7 +472,7 @@ Health insurance covers employee and immediate family members. The company match
     sample_question = "What are the vacation and benefits policies?"
 
     # Test the prompt style
-    valid_styles = ["default", "detailed", "concise", "academic", "technical"]
+    valid_styles = ["default", "detailed", "concise", "academic", "technical", "educational"]
     if style not in valid_styles:
         typer.echo(f"❌ Invalid style: {style}")
         typer.echo(f"Valid options: {', '.join(valid_styles)}")

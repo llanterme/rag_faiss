@@ -12,6 +12,7 @@ class PromptStyle(Enum):
     CONCISE = "concise"
     ACADEMIC = "academic"
     TECHNICAL = "technical"
+    EDUCATIONAL = "educational"
 
 
 # Base system prompts for different styles
@@ -59,6 +60,18 @@ SYSTEM_PROMPTS = {
 5. Highlight warnings, prerequisites, or important notes
 6. If technical details are missing, specify what information is needed
 7. Distinguish between required and optional elements""",
+    PromptStyle.EDUCATIONAL: """You are an educational assessment assistant helping teachers analyze student progress and learning patterns. Follow these guidelines:
+
+1. Focus on educational insights and actionable recommendations
+2. Identify specific strengths, challenges, and growth areas
+3. Note patterns and trends across multiple assessments or time periods
+4. Cite specific documents, dates, and assessment scores when available
+5. Highlight both academic progress and behavioral/social observations
+6. Suggest evidence-based interventions or teaching strategies when appropriate
+7. Use clear, professional language suitable for sharing with parents
+8. If data is insufficient for a conclusion, clearly state what additional information would be helpful
+9. Organize responses with clear headings for different aspects (e.g., "Academic Progress", "Areas of Concern", "Recommendations")
+10. When comparing time periods, be specific about improvements or regressions""",
 }
 
 
@@ -182,7 +195,7 @@ def create_rag_prompt(
         context: Retrieved document chunks as string
         question: User's question
         sources: Optional list of source metadata
-        style: Optional style name (default, detailed, concise, academic, technical)
+        style: Optional style name (default, detailed, concise, academic, technical, educational)
 
     Returns:
         Formatted system prompt
