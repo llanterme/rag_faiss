@@ -272,6 +272,12 @@ def render_add_student():
 def render_educational_queries(student: Student):
     """Render pre-built educational query interface."""
     st.markdown("### 🎯 Educational Queries")
+    st.info("💡 Click any question below to get instant insights about " + student.name + "!")
+    
+    # Check if student has documents
+    if not student_index_exists(student.id):
+        st.warning(f"Upload documents for {student.name} first to use educational queries.")
+        return
     
     # Create tabs for different query categories
     tabs = st.tabs(list(EDUCATIONAL_QUERIES.keys()))
@@ -283,12 +289,74 @@ def render_educational_queries(student: Student):
             for query_template in queries:
                 query = query_template.format(student_name=student.name)
                 if st.button(query, key=f"query_{category}_{hash(query)}", use_container_width=True):
-                    # Add to chat
+                    # Process the query immediately in this tab
+                    st.markdown("---")
+                    
+                    # Add to chat history
                     if student.id not in st.session_state.student_messages:
                         st.session_state.student_messages[student.id] = []
                     
                     st.session_state.student_messages[student.id].append(HumanMessage(content=query))
-                    st.session_state.selected_query = query
+                    
+                    # Show the query being processed
+                    with st.chat_message("user"):
+                        st.write(query)
+                    
+                    with st.chat_message("assistant"):
+                        with st.spinner("Analyzing documents..."):
+                            try:
+                                # Initialize or load retrieval chain for this student
+                                if student.id not in st.session_state.student_retrieval_chains:
+                                    try:
+                                        index = load_student_index(student.id)
+                                        chain = build_retrieval_chain(index, student_id=student.id)
+                                        st.session_state.student_retrieval_chains[student.id] = chain
+                                    except Exception as e:
+                                        st.error(f"Error loading documents for {student.name}: {str(e)}")
+                                        return
+                                
+                                chain = st.session_state.student_retrieval_chains[student.id]
+                                result = chain.invoke({"question": query})
+                                
+                                # Extract answer and sources
+                                answer = None
+                                sources = []
+                                
+                                if isinstance(result, dict):
+                                    if "answer" in result and result["answer"]:
+                                        answer = result["answer"]
+                                        sources = result.get("sources", [])
+                                    elif "messages" in result and result["messages"]:
+                                        for message in result["messages"]:
+                                            if isinstance(message, AIMessage) and message == result["messages"][-1]:
+                                                answer = message.content
+                                                if hasattr(message, "sources"):
+                                                    sources = message.sources
+                                                break
+                                
+                                if answer:
+                                    st.write(answer)
+                                    
+                                    # Display sources
+                                    if sources:
+                                        with st.expander("📄 Sources"):
+                                            for i, source in enumerate(sources, 1):
+                                                st.write(f"{i}. **{source.get('source', 'Unknown')}**")
+                                    
+                                    # Add to chat history
+                                    ai_message = AIMessage(content=answer)
+                                    if sources:
+                                        ai_message.sources = sources
+                                    st.session_state.student_messages[student.id].append(ai_message)
+                                    
+                                    # Show helpful message
+                                    st.success("💬 This conversation has been saved to the Chat tab for future reference!")
+                                else:
+                                    st.error("Could not generate a response. Please try rephrasing your question.")
+                            
+                            except Exception as e:
+                                st.error(f"Error processing query: {str(e)}")
+                    
                     st.rerun()
 
 
@@ -485,57 +553,7 @@ def render_student_chat(student: Student):
                         for i, source in enumerate(message.sources, 1):
                             st.write(f"{i}. **{source.get('source', 'Unknown')}**")
     
-    # Handle selected query from educational templates
-    if hasattr(st.session_state, 'selected_query'):
-        query = st.session_state.selected_query
-        del st.session_state.selected_query
-        
-        # Process the query
-        with st.chat_message("user"):
-            st.write(query)
-        
-        with st.chat_message("assistant"):
-            with st.spinner("Analyzing documents..."):
-                try:
-                    chain = st.session_state.student_retrieval_chains[student.id]
-                    result = chain.invoke({"question": query})
-                    
-                    # Extract answer and sources
-                    answer = None
-                    sources = []
-                    
-                    if isinstance(result, dict):
-                        if "answer" in result and result["answer"]:
-                            answer = result["answer"]
-                            sources = result.get("sources", [])
-                        elif "messages" in result and result["messages"]:
-                            for message in result["messages"]:
-                                if isinstance(message, AIMessage) and message == result["messages"][-1]:
-                                    answer = message.content
-                                    if hasattr(message, "sources"):
-                                        sources = message.sources
-                                    break
-                    
-                    if answer:
-                        st.write(answer)
-                        
-                        # Display sources
-                        if sources:
-                            with st.expander("📄 Sources"):
-                                for i, source in enumerate(sources, 1):
-                                    st.write(f"{i}. **{source.get('source', 'Unknown')}**")
-                        
-                        # Add to chat history
-                        ai_message = AIMessage(content=answer)
-                        if sources:
-                            ai_message.sources = sources
-                        st.session_state.student_messages[student.id].append(ai_message)
-                    else:
-                        st.error("Could not generate a response. Please try rephrasing your question.")
-                
-                except Exception as e:
-                    st.error(f"Error processing query: {str(e)}")
-    
+    # Note: Educational queries are now processed directly in the Quick Queries tab
     # Chat input
     if prompt := st.chat_input(f"Ask about {student.name}..."):
         # Add user message
